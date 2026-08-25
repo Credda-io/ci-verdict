@@ -20,7 +20,7 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **132 tests**, 80 of them on the classifier itself.
+- **146 tests**, 94 of them on the classifier itself.
 
 Apache-2.0.
 
@@ -65,7 +65,9 @@ runs](examples/three-runs.mjs) through it. Its actual output:
 
 ```
 A genuine test failure — a vitest assertion on the default branch
-  { "attributable": true }
+  {
+    "attributable": true
+  }
 
 A cancelled run — somebody pressed the button
   {
@@ -126,13 +128,17 @@ those tools print, and they will go stale.
 So they are given exactly one power: **they may reject, never approve.**
 
 ```ts
-function classifyFailingStep(step: StepFacts | null): CiAttribution | null;
-function classifyFailureLog(log: string): CiAttribution | null;
+type CiRejection = Extract<CiAttribution, { attributable: false }>;
+
+function classifyFailingStep(step: StepFacts | null): CiRejection | null;
+function classifyFailureLog(log: string): CiRejection | null;
 ```
 
-`null` means *no opinion*. It is a different thing from approval, and there is
-no value in that return type that means "I vouch for this". The asymmetry is
-enforced by the shape of the functions, not by a convention someone can forget.
+`null` means *no opinion*. It is a different thing from approval, and
+`CiRejection` has no member that means "I vouch for this", so a heuristic here
+that tried to return `{ attributable: true }` does not compile. The asymmetry is
+checked by tsc, not left to a convention someone can forget. `CiRejection` is
+exported if you want to hold a rejection in your own code.
 
 The reason is a cost argument. A heuristic that fires wrongly costs one red run
 ignored — annoying, recoverable, and visible if you count reason codes. A
@@ -230,10 +236,17 @@ the reason you record is the most specific true one — a cancelled pull request
 build is reported as `RUN_CANCELLED`, not as off-mainline, because cancelled is
 the fact that decides it.
 
-Logs are large; `ciVerdict()` takes the last `MAX_LOG_SCAN_BYTES` (256 KiB) for
+Logs are large; `ciVerdict()` takes the last `MAX_LOG_SCAN_BYTES` (262,144) for
 you, so you cannot forget to. The end is the part that matters: the runner
 writes its own diagnosis last, and a registry or DNS failure aborts the step it
 happened in.
+
+The name says bytes and the unit is string length, which is UTF-16 code units.
+For the ASCII a runner writes those are the same number; for a log carrying
+non-ASCII text they are not, and 262,144 characters of two-byte UTF-8 is 512
+KiB. Treat it as a bound on characters scanned and an approximate one on memory.
+If your logs are large *and* non-ASCII, slice to a byte budget yourself before
+handing the log over.
 
 ## Lower-level API
 
@@ -245,9 +258,11 @@ payloads, so you can test your own policy without a webhook body.
 classifyWorkflowRun(facts: WorkflowRunFacts): CiAttribution
 classifyJobOutcome(jobs: readonly JobFacts[]): CiAttribution
 
-// Layer 2. May only reject; `null` means no opinion.
-classifyFailingStep(step: StepFacts | null): CiAttribution | null
-classifyFailureLog(log: string): CiAttribution | null
+// Layer 2. May only reject; `null` means no opinion. `CiRejection` is the
+// `attributable: false` half of `CiAttribution` and has no approving member,
+// so these two signatures are the invariant rather than a note about it.
+classifyFailingStep(step: StepFacts | null): CiRejection | null
+classifyFailureLog(log: string): CiRejection | null
 
 // Selection.
 findFailedJob(jobs: readonly JobFacts[]): JobFacts | null
@@ -333,7 +348,7 @@ somebody else's build.
 ```
 npm install
 npm run typecheck   # tsc, strict, noUncheckedIndexedAccess
-npm test            # vitest, 132 tests
+npm test            # vitest, 146 tests
 npm run build       # tsc → dist/, ESM + .d.ts
 npm run check       # all three
 npm run example     # build, then run the four worked runs

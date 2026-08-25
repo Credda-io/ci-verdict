@@ -26,9 +26,9 @@
  *   red run ignored. A heuristic trusted to accept would cost a confident,
  *   wrong claim that the repository is at fault, and that is not a trade worth
  *   making in either direction, so the asymmetry is enforced by the SHAPE of
- *   the functions -- `CiAttribution | null`, where `null` means "no opinion"
- *   and there is no value in the type that means "approved" -- rather than by
- *   discipline.
+ *   the functions -- `CiRejection | null`, where `null` means "no opinion" and
+ *   the type has no member that means "approved", so a heuristic that tried to
+ *   approve would not compile -- rather than by discipline.
  *
  * The default for an unrecognised failure is `attributable`. That is a real
  * choice and worth being honest about: layer 1 removes the large documented
@@ -115,6 +115,17 @@ export type CiAttribution =
       readonly explanation: string;
     };
 
+/**
+ * The half of `CiAttribution` that says no, as a type of its own.
+ *
+ * This exists so that "a heuristic may only reject" is a fact the compiler
+ * checks rather than a rule in a docblock. The two layer-2 functions return
+ * `CiRejection | null`, and that type contains no value meaning "I vouch for
+ * this": a heuristic that tried to return `{ attributable: true }` would not
+ * compile. `CiAttribution | null` would have permitted it.
+ */
+export type CiRejection = Extract<CiAttribution, { readonly attributable: false }>;
+
 const EXPLANATIONS: Readonly<Record<CiNotADefectReason, string>> = {
   RUN_NOT_COMPLETED: 'the run has not finished, so there is no outcome to attribute yet',
   RUN_DID_NOT_FAIL: 'the run did not conclude as a failure',
@@ -149,7 +160,7 @@ const EXPLANATIONS: Readonly<Record<CiNotADefectReason, string>> = {
     'the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested',
 };
 
-function reject(reason: CiNotADefectReason): CiAttribution {
+function reject(reason: CiNotADefectReason): CiRejection {
   return { attributable: false, reason, explanation: EXPLANATIONS[reason] };
 }
 
@@ -354,11 +365,13 @@ const INFRASTRUCTURE_STEP_PATTERNS: readonly RegExp[] = [
 /**
  * Layer 2 applied to the failing step. Rejects or says nothing.
  *
- * The return type is `CiAttribution | null` rather than `CiAttribution` on
- * purpose: `null` means "this layer has no opinion", which is different from
- * "this layer vouches for it". Nothing in this module is allowed to vouch.
+ * The return type is `CiRejection | null`, and both halves are deliberate.
+ * `null` means "this layer has no opinion", which is different from "this
+ * layer vouches for it". `CiRejection` has no member that approves, so a
+ * heuristic that tried to vouch would not compile -- the asymmetry is checked
+ * by tsc rather than trusted to whoever edits the pattern list next.
  */
-export function classifyFailingStep(step: StepFacts | null): CiAttribution | null {
+export function classifyFailingStep(step: StepFacts | null): CiRejection | null {
   const name = (step?.name ?? '').trim();
   if (name === '') return null;
   return INFRASTRUCTURE_STEP_PATTERNS.some((pattern) => pattern.test(name))
@@ -426,7 +439,7 @@ const INFRASTRUCTURE_LOG_PATTERNS: readonly RegExp[] = [
  * that is not the same as approval. The caller passes a bounded tail rather
  * than a whole log; see `MAX_LOG_SCAN_BYTES` and `logTail()`.
  */
-export function classifyFailureLog(log: string): CiAttribution | null {
+export function classifyFailureLog(log: string): CiRejection | null {
   if (typeof log !== 'string' || log === '') return null;
   return INFRASTRUCTURE_LOG_PATTERNS.some((pattern) => pattern.test(log))
     ? reject('INFRASTRUCTURE_IN_LOG')
@@ -441,6 +454,14 @@ export function classifyFailureLog(log: string): CiAttribution | null {
  * a worker is a way to lose the worker. The end is the part that matters: the
  * runner writes its own diagnosis last, and a registry or DNS failure aborts
  * the step it happened in, so the message is at the tail of what was written.
+ *
+ * The name says bytes and the unit is JavaScript string length, which is UTF-16
+ * code units. For the ASCII a runner writes those are the same number. For a
+ * log with non-ASCII text in it they are not: 262,144 characters of two-byte
+ * UTF-8 is 512 KiB. The bound is therefore an upper bound on characters scanned
+ * and only an approximate one on memory. Counting real bytes would mean
+ * encoding the log to find out where to cut it, which costs the allocation the
+ * bound exists to avoid.
  */
 export const MAX_LOG_SCAN_BYTES = 262_144;
 

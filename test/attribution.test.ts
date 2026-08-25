@@ -341,6 +341,43 @@ describe('classifyFailureLog', () => {
   });
 });
 
+describe('the heuristic layer may only reject', () => {
+  // The compiler is the real enforcement: both functions return
+  // `CiRejection | null`, a type with no member that approves, so a heuristic
+  // that tried to vouch for a run would not build. This runs the same claim at
+  // runtime over both functions and a spread of inputs, so that a future
+  // widening of the return type does not pass unnoticed.
+  const steps = ['pnpm test', 'Set up job', 'Checkout', '', '   ', 'Run my custom script'];
+  const logs = [
+    'AssertionError: expected 1 to be 2',
+    'getaddrinfo EAI_AGAIN registry.npmjs.org',
+    'FATAL ERROR: Reached heap limit Allocation failed',
+    'error TS2322: Type string is not assignable to type number',
+    '',
+    'The runner has received a shutdown signal',
+  ];
+
+  it.each(steps)('classifyFailingStep never approves: %j', (name) => {
+    const verdict = classifyFailingStep({
+      name,
+      number: 1,
+      status: 'completed',
+      conclusion: 'failure',
+    });
+    expect(verdict === null || verdict.attributable === false).toBe(true);
+  });
+
+  it.each(logs)('classifyFailureLog never approves: %j', (log) => {
+    const verdict = classifyFailureLog(log);
+    expect(verdict === null || verdict.attributable === false).toBe(true);
+  });
+
+  it('has no opinion at all when given nothing to read', () => {
+    expect(classifyFailingStep(null)).toBeNull();
+    expect(classifyFailureLog('')).toBeNull();
+  });
+});
+
 describe('logTail', () => {
   it('keeps the end, which is where a runner writes its diagnosis', () => {
     const log = `${'x'.repeat(MAX_LOG_SCAN_BYTES)}The runner has received a shutdown signal`;
@@ -351,5 +388,14 @@ describe('logTail', () => {
 
   it('leaves a short log alone', () => {
     expect(logTail('short')).toBe('short');
+  });
+
+  it('bounds characters, not bytes, despite the name of the constant', () => {
+    // Documented in the module and the README. Cutting on a real byte count
+    // would mean encoding the log first, which costs the allocation the bound
+    // exists to avoid. Pinned here so the discrepancy stays a stated one.
+    const tail = logTail('é'.repeat(MAX_LOG_SCAN_BYTES + 100));
+    expect(tail.length).toBe(MAX_LOG_SCAN_BYTES);
+    expect(new TextEncoder().encode(tail).length).toBe(MAX_LOG_SCAN_BYTES * 2);
   });
 });

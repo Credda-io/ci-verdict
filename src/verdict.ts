@@ -67,10 +67,10 @@ export function ciVerdict(input: CiVerdictInput): CiAttribution {
     // through so that the two functions stay independently testable.
     const failed = findFailedJob(jobs);
     const step = classifyFailingStep(failed === null ? null : findFailedStep(failed));
-    // A heuristic layer answers `CiAttribution | null` and the null is the
+    // A heuristic layer answers `CiRejection | null` and the null is the
     // interesting half: it means "no opinion", and no opinion is not approval.
-    // The only thing done with a non-null answer is returning it, because the
-    // only non-null answer it can produce is a rejection.
+    // The only thing done with a non-null answer is returning it, because a
+    // rejection is the only non-null answer the type lets it produce.
     if (step !== null) return step;
   }
 
