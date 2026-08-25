@@ -1,0 +1,49 @@
+{
+  "name": "ci-verdict",
+  "version": "0.1.0",
+  "description": "Is this red GitHub Actions run a defect in the repository, or a failure of the CI that ran it? Zero dependencies, two layers, and heuristics that may only ever reject.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "github-actions",
+    "ci",
+    "flaky",
+    "workflow-run",
+    "triage",
+    "attribution",
+    "infrastructure-failure",
+    "zero-dependencies"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "prepublishOnly": "npm run check",
+    "example": "npm run build && node examples/three-runs.mjs"
+  }
+}

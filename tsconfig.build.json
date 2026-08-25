@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    /* Nothing ambient. `src` compiles against ES2022 and itself. */
+    "types": [],
+    /* NodeNext so the emitted JS keeps the explicit `.js` specifiers the source
+       already writes, and the package resolves under plain `node dist/...`. */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["src/**/*.ts"]
+}
