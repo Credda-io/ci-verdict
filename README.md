@@ -1,7 +1,6 @@
 # ci-verdict
 
 [![Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-informational)](LICENSE)
-[![npm](https://img.shields.io/npm/v/ci-verdict)](https://www.npmjs.com/package/ci-verdict)
 [![zero dependencies](https://img.shields.io/badge/dependencies-none-informational)](test/package.test.ts)
 
 **Is this red CI run our bug, or was it the runner?**
@@ -43,11 +42,11 @@ can be enforced by the type system instead of by a comment.
 ### What it has to do with Credda
 
 This is the failing-CI classifier from [Credda](https://credda.io), extracted
-and published on its own. Credda finds the security risks and the bugs in a
-company's production and QA environments and opens the pull request that fixes
-them: it runs in your own CI, reproduces the reported failure, finds what
-actually caused it, writes the patch, and proves it with a test that fails before
-and passes after. A person reviews the diff; Credda never merges.
+and published on its own. Credda finds the bugs and security vulnerabilities in a
+company's production and QA environments, reproduces the failure, diagnoses the
+cause, writes the patch, proves it with a test that fails before and passes
+after, and opens a pull request. It runs in your own CI. It proposes and never
+merges.
 
 Everything in that sentence rests on a red run meaning something. An agent that
 investigates an npm registry outage as though it were a defect wastes a sandbox
@@ -60,6 +59,12 @@ can be, and made cautiously where it cannot.
 ```
 npm install ci-verdict
 ```
+
+> **Not on npm yet — checked 2026-08-28.** `https://registry.npmjs.org/ci-verdict`
+> returns 404, so the command above fails today. Until `0.1.0` is published, use
+> it from a checkout of this repository. This is the only claim in this README
+> that is about the future; everything below is about the code in this repo, and
+> the test counts are real (`npm test`).
 
 ## Use it
 
