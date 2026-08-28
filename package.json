@@ -31,11 +31,10 @@
     "README.md",
     "LICENSE"
   ],
-  "dependencies": {},
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.2.7"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
