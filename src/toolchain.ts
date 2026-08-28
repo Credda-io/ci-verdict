@@ -254,7 +254,11 @@ export function resolvePackageManager(inputs: ToolchainInputs): PackageManagerRe
  *
  * Returns null when a command has nothing to relax (`npm install` already is
  * the fallback, `corepack prepare` is not an install), which is what keeps this
- * from firing twice on the same failure.
+ * from firing twice on the same failure. It also returns null for anything that
+ * is not an install at all, however familiar the flags on it look: `yarn
+ * workspaces focus --immutable` is not a strict install with a flag to drop,
+ * and rewriting it into `yarn install` would silently run a different command
+ * than the one that failed.
  *
  * Fire it only after a real non-zero exit from the strict install. A timeout is
  * not a lockfile disagreement -- it is a slow network or a wedged process -- and
@@ -269,6 +273,21 @@ export function relaxedInstall(command: readonly string[]): readonly string[] | 
     case 'npm':
       // `npm ci` is the only strict form npm has; `npm install` is the relaxed one.
       return subcommand === 'ci' ? ['npm', 'install', ...flags] : null;
+    case 'yarn':
+    case 'pnpm':
+    case 'bun':
+      // Only an install can be relaxed. Without this, any subcommand carrying a
+      // lockfile flag -- `yarn workspaces focus --immutable`, `pnpm deploy
+      // --frozen-lockfile` -- would come back rewritten as a plain install,
+      // which is a different command doing a different job. The npm branch above
+      // gets this for free by matching on `ci`; these three have to say it.
+      if (subcommand !== 'install') return null;
+      break;
+    default:
+      return null;
+  }
+
+  switch (executable) {
     case 'yarn':
       // Classic spells it --frozen-lockfile, berry --immutable. Dropping either
       // leaves a plain `yarn install`, which both accept.

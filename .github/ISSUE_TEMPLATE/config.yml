@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/Credda-io/ci-verdict/security/advisories/new
+    about: Do not open a public issue for something exploitable. See SECURITY.md.
+  - name: What Credda is
+    url: https://credda.io
+    about: This package is the failing-CI classifier from Credda, published on its own.

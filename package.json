@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Is this red GitHub Actions run a defect in the repository, or a failure of the CI that ran it? Zero dependencies, two layers, and heuristics that may only ever reject.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/Credda-io/ci-verdict#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Credda-io/ci-verdict.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Credda-io/ci-verdict/issues"
+  },
+  "author": "Credda (https://credda.io)",
   "type": "module",
   "sideEffects": false,
   "engines": {

@@ -1,0 +1,61 @@
+name: A run was classified wrongly
+description: ci-verdict said attributable when it was infrastructure, or said no when it was a real defect.
+labels: [classification]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two directions, and they are not the same size of mistake.
+
+        **It rejected a real defect** — a false rejection hides a genuine break,
+        and this is the serious one.
+
+        **It accepted an infrastructure failure** — expected, and documented in
+        the README under "The known limitation". The default for an unrecognised
+        failure *is* attributable. Still worth filing: a new pnpm error string or
+        a corporate mirror's own vocabulary is exactly how the layer-2 patterns
+        get better.
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Which way was it wrong?
+      options:
+        - It rejected a run that was a genuine defect
+        - It accepted a run that was an infrastructure failure
+        - The reason code was right but the wrong one of two true ones
+    validations:
+      required: true
+  - type: textarea
+    id: verdict
+    attributes:
+      label: What it returned
+      description: The whole verdict object, including the reason code.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: What you passed in
+      description: >
+        The `workflow_run` fields that mattered — `action`, `status`,
+        `conclusion`, `event`, `head_branch`, and the repository's
+        `default_branch`. Plus the failing step's name if you passed jobs, and
+        the log lines if you passed a log. Redact anything private; the
+        classifier only reads those fields, so the rest is not needed.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ci-verdict version
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        If a log line named a tool whose wording is not in the pattern list, the
+        exact line is the useful part.

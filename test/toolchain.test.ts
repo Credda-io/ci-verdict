@@ -203,6 +203,35 @@ describe('relaxedInstall', () => {
     expect(relaxedInstall([])).toBeNull();
   });
 
+  it('relaxes an install and nothing else, however familiar the flags look', () => {
+    // A lockfile flag is not what makes a command relaxable -- being an install
+    // is. Rewriting one of these into `yarn install` would run a different
+    // command than the one that failed, on a tree the operator did not ask for.
+    expect(relaxedInstall(['yarn', 'workspaces', 'focus', '--immutable'])).toBeNull();
+    expect(relaxedInstall(['pnpm', 'deploy', '--frozen-lockfile', './out'])).toBeNull();
+    expect(relaxedInstall(['bun', 'add', 'left-pad', '--frozen-lockfile'])).toBeNull();
+    expect(relaxedInstall(['npm', 'audit', '--production'])).toBeNull();
+  });
+
+  it('keeps flags it does not recognise when it does relax one', () => {
+    // The operator put them there. Only the lockfile flag is this function's
+    // business; dropping a registry or a workspace selector alongside it would
+    // change what gets installed as well as how strictly.
+    expect(relaxedInstall(['npm', 'ci', '--workspaces', '--foreground-scripts'])).toEqual([
+      'npm',
+      'install',
+      '--workspaces',
+      '--foreground-scripts',
+    ]);
+    expect(relaxedInstall(['pnpm', 'install', '--frozen-lockfile', '--filter', 'web'])).toEqual([
+      'pnpm',
+      'install',
+      '--no-frozen-lockfile',
+      '--filter',
+      'web',
+    ]);
+  });
+
   it('resolves a fallback for every install command the resolver can produce', () => {
     // The guard against a resolver change silently outrunning this function.
     const strict = [

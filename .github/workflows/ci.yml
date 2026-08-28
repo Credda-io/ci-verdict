@@ -1,0 +1,38 @@
+# Typecheck, test, build. The same three things `npm run check` runs locally, so
+# a green CI and a green working copy mean the same thing.
+#
+# The matrix is not about coverage of Node's standard library -- this package
+# does not use it, and there is a test that fails if it ever starts. It is about
+# the claim that the source has no host dependency at all: if `dist/` behaves
+# differently on 20 than on 24, something got in.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # The worked example in the README, run. It builds first, so this also
+      # proves the published entry points resolve.
+      - run: npm run example

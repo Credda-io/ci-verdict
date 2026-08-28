@@ -1,5 +1,9 @@
 # ci-verdict
 
+[![Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-informational)](LICENSE)
+[![npm](https://img.shields.io/npm/v/ci-verdict)](https://www.npmjs.com/package/ci-verdict)
+[![zero dependencies](https://img.shields.io/badge/dependencies-none-informational)](test/package.test.ts)
+
 **Is this red CI run our bug, or was it the runner?**
 
 Every engineer with CI has that question and nobody ships a careful answer. A
@@ -20,9 +24,36 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **146 tests**, 94 of them on the classifier itself.
+- **148 tests**, 94 of them on the classifier itself.
 
-Apache-2.0.
+Apache-2.0. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities:
+[SECURITY.md](SECURITY.md), privately.
+
+### Why it is a package of its own
+
+Because the question is upstream of everybody who has it, and nobody's answer is
+reusable while it lives inside their bot. A dashboard that counts flakiness, an
+on-call rota, an issue filer and an agent that opens an investigation all need
+this decision made before they act, and all four otherwise make it with a regex
+somebody wrote in an afternoon. Extracting it means the reasoning can be read,
+the enum handling can be audited against GitHub's own documentation, and the
+asymmetry that makes it trustworthy -- a heuristic may reject, never approve --
+can be enforced by the type system instead of by a comment.
+
+### What it has to do with Credda
+
+This is the failing-CI classifier from [Credda](https://credda.io), extracted
+and published on its own. Credda finds the security risks and the bugs in a
+company's production and QA environments and opens the pull request that fixes
+them: it runs in your own CI, reproduces the reported failure, finds what
+actually caused it, writes the patch, and proves it with a test that fails before
+and passes after. A person reviews the diff; Credda never merges.
+
+Everything in that sentence rests on a red run meaning something. An agent that
+investigates an npm registry outage as though it were a defect wastes a sandbox
+and files a confident, wrong claim about somebody's repository -- which is why
+this decision is made first, made from GitHub's own documented enums where it
+can be, and made cautiously where it cannot.
 
 ## Install
 
@@ -348,7 +379,7 @@ somebody else's build.
 ```
 npm install
 npm run typecheck   # tsc, strict, noUncheckedIndexedAccess
-npm test            # vitest, 146 tests
+npm test            # vitest, 148 tests
 npm run build       # tsc → dist/, ESM + .d.ts
 npm run check       # all three
 npm run example     # build, then run the four worked runs
@@ -360,7 +391,12 @@ zero-dependency claim, alongside the audit in `test/package.test.ts` that reads
 every source file and fails on any specifier that is not a relative path inside
 `src/`.
 
-## Provenance
+## Contributing
 
-This is the failing-CI classifier from [Credda](https://codereef.app),
-extracted and published on its own.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the four rules that are not negotiable --
+the zero-import constraint, the reject-only asymmetry, totality, and citing
+GitHub's documentation for every enum -- and what a new layer-2 pattern has to
+clear before it is added.
+
+Security: [SECURITY.md](SECURITY.md). Everything this package reads came off an
+attacker-influenced payload, and it is written that way on purpose.
