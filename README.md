@@ -362,5 +362,5 @@ every source file and fails on any specifier that is not a relative path inside
 
 ## Provenance
 
-This is the failing-CI classifier from [CodeReef](https://codereef.app),
+This is the failing-CI classifier from [Credda](https://codereef.app),
 extracted and published on its own.
