@@ -42,11 +42,12 @@ can be enforced by the type system instead of by a comment.
 ### What it has to do with Credda
 
 This is the failing-CI classifier from [Credda](https://credda.io), extracted
-and published on its own. Credda finds the bugs and security vulnerabilities in a
-company's production and QA environments, reproduces the failure, diagnoses the
-cause, writes the patch, proves it with a test that fails before and passes
-after, and opens a pull request. It runs in your own CI. It proposes and never
-merges.
+and published on its own. Credda takes a bug report or security vulnerability a
+customer has labelled, reproduces the failure, diagnoses the cause, writes the
+patch, proves it with a test that fails before and passes after, and hands back
+a diff. It runs in your own CI. Opening a pull request is an opt-in input that
+is off by default and has not yet run against a real repository. It proposes and
+never merges.
 
 Everything in that sentence rests on a red run meaning something. An agent that
 investigates an npm registry outage as though it were a defect wastes a sandbox
