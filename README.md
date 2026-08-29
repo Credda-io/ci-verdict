@@ -45,9 +45,13 @@ This is the failing-CI classifier from [Credda](https://credda.io), extracted
 and published on its own. Credda takes a bug report or security vulnerability a
 customer has labelled, reproduces the failure, diagnoses the cause, writes the
 patch, proves it with a test that fails before and passes after, and hands back
-a diff. It runs in your own CI. Opening a pull request is an opt-in input that
-is off by default and has not yet run against a real repository. It proposes and
-never merges.
+a diff. It runs in your own CI. Whether that diff becomes a
+pull request depends on which mechanism delivered it, and the two answer
+differently: the **GitHub App** path opens one with no flag and no switch, for a
+run that reaches `READY_FOR_REVIEW` with a proven verdict; the **GitHub Action**
+opens none unless you set its `open-pull-request` input, which defaults to
+`false`. How often a run reaches a proven fix at all has not been measured. It
+proposes and never merges.
 
 Everything in that sentence rests on a red run meaning something. An agent that
 investigates an npm registry outage as though it were a defect wastes a sandbox
