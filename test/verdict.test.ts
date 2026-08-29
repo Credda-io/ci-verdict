@@ -175,6 +175,8 @@ describe('worked examples', () => {
       reason: 'RUN_CANCELLED',
       explanation:
         'the run was cancelled, which says a person or a policy stopped it and nothing about the code',
+      layer: 'documented',
+      evidence: 'cancelled',
     });
   });
 
@@ -205,6 +207,8 @@ describe('worked examples', () => {
       reason: 'FAILING_STEP_IS_INFRASTRUCTURE',
       explanation:
         'the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository',
+      layer: 'heuristic',
+      evidence: 'Install dependencies',
     });
 
     // And the log alone would have caught it too, which is the point of having
@@ -228,6 +232,9 @@ describe('worked examples', () => {
       reason: 'INFRASTRUCTURE_IN_LOG',
       explanation:
         'the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested',
+      layer: 'heuristic',
+      evidence:
+        '2026-08-24T10:52:18.7000000Z The self-hosted runner: builder-07 lost communication with the server.',
     });
   });
 });

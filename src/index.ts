@@ -21,10 +21,12 @@ export {
   findFailedJob,
   findFailedStep,
   logTail,
+  MAX_EVIDENCE_LENGTH,
   MAX_LOG_SCAN_BYTES,
 } from './attribution.js';
 export type {
   CiAttribution,
+  CiLayer,
   CiNotADefectReason,
   CiRejection,
   JobFacts,

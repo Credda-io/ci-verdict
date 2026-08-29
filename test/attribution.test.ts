@@ -21,6 +21,7 @@ import {
   findFailedJob,
   findFailedStep,
   logTail,
+  MAX_EVIDENCE_LENGTH,
   MAX_LOG_SCAN_BYTES,
 } from '../src/attribution.js';
 import type { JobFacts, WorkflowRunFacts } from '../src/attribution.js';
@@ -397,5 +398,81 @@ describe('logTail', () => {
     const tail = logTail('é'.repeat(MAX_LOG_SCAN_BYTES + 100));
     expect(tail.length).toBe(MAX_LOG_SCAN_BYTES);
     expect(new TextEncoder().encode(tail).length).toBe(MAX_LOG_SCAN_BYTES * 2);
+  });
+});
+
+describe('every rejection says which layer decided it and what it saw', () => {
+  const failed = (over: Partial<WorkflowRunFacts> = {}): WorkflowRunFacts => ({
+    action: 'completed',
+    status: 'completed',
+    conclusion: 'failure',
+    triggeringEvent: 'push',
+    headBranch: 'main',
+    defaultBranch: 'main',
+    repositoryFullName: 'owner/repo',
+    workflowPath: '.github/workflows/ci.yml',
+    ...over,
+  });
+
+  it('labels GitHub-enum rejections documented and heuristic ones heuristic', () => {
+    const cancelled = classifyWorkflowRun(failed({ conclusion: 'cancelled' }));
+    expect(cancelled).toMatchObject({ layer: 'documented', evidence: 'cancelled' });
+
+    const step = classifyFailingStep({ name: 'Restore cache', number: 2, status: 'completed', conclusion: 'failure' });
+    expect(step).toMatchObject({ layer: 'heuristic', evidence: 'Restore cache' });
+  });
+
+  it('shows the branch, the event and the job that decided it', () => {
+    expect(classifyWorkflowRun(failed({ headBranch: 'renovate/lodash' }))).toMatchObject({
+      reason: 'NOT_THE_DEFAULT_BRANCH',
+      evidence: 'renovate/lodash',
+    });
+    expect(classifyWorkflowRun(failed({ triggeringEvent: 'pull_request' }))).toMatchObject({
+      reason: 'TRIGGER_IS_NOT_A_MAINLINE_RUN',
+      evidence: 'pull_request',
+    });
+    const jobs: JobFacts[] = [
+      { name: 'lint', conclusion: 'success', steps: [] },
+      { name: 'unit (node 22)', conclusion: 'cancelled', steps: [] },
+    ];
+    expect(classifyJobOutcome(jobs)).toMatchObject({ reason: 'JOB_CANCELLED', evidence: 'unit (node 22)' });
+  });
+
+  it('carries the whole log line a pattern matched, not the bare match', () => {
+    const rejection = classifyFailureLog(
+      ['npm install', '  npm ERR! network request to https://registry.npmjs.org/left-pad failed', 'done'].join('\n'),
+    );
+    expect(rejection?.evidence).toBe('npm ERR! network request to https://registry.npmjs.org/left-pad failed');
+  });
+
+  it('is null when the reason is the absence of a field, not the value of one', () => {
+    expect(classifyWorkflowRun(failed({ defaultBranch: null }))).toMatchObject({
+      reason: 'DEFAULT_BRANCH_NOT_STATED',
+      evidence: null,
+    });
+    expect(classifyWorkflowRun(failed({ workflowPath: null }))).toMatchObject({
+      reason: 'RUN_PAYLOAD_INCOMPLETE',
+      evidence: null,
+    });
+  });
+
+  it('strips the control characters a crafted step name could carry', () => {
+    // A step name is written by whoever opened the pull request. An ESC in it
+    // would be a terminal escape sequence in an operator's log; a CR would let
+    // it overwrite the line above.
+    const rejection = classifyFailingStep({
+      name: 'Checkout\u001b[2K\rdeploy succeeded',
+      number: 1,
+      status: 'completed',
+      conclusion: 'failure',
+    });
+    expect(rejection?.evidence).toBe('Checkout [2K deploy succeeded');
+    expect(rejection?.evidence).not.toMatch(/[\u0000-\u001F]/);
+  });
+
+  it('bounds what a caller ends up storing, however long the line was', () => {
+    const rejection = classifyFailureLog(`ECONNRESET ${'x'.repeat(5_000)}`);
+    expect(rejection?.evidence?.length).toBe(MAX_EVIDENCE_LENGTH);
+    expect(rejection?.evidence?.endsWith('\u2026')).toBe(true);
   });
 });

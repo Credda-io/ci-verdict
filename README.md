@@ -101,8 +101,23 @@ attributable verdict does not compile:
 ```ts
 type CiAttribution =
   | { attributable: true }
-  | { attributable: false; reason: CiNotADefectReason; explanation: string };
+  | {
+      attributable: false;
+      reason: CiNotADefectReason;
+      explanation: string;
+      layer: 'documented' | 'heuristic';
+      evidence: string | null;
+    };
 ```
+
+`layer` says which of the two layers below decided, so a caller who wants to
+act only on the certain half can write `verdict.layer === 'documented'` instead
+of hardcoding a list of reason codes that goes stale the next time one is
+added. `evidence` is the one thing that decided it — the conclusion, the
+triggering event, the branch, the failing job or step name, the log line a
+pattern matched — and null when the reason is the *absence* of a field, since
+then there is nothing to show. See "Evidence is payload text" before you log
+it.
 
 `npm run example` builds the package and runs [four real-shaped
 runs](examples/three-runs.mjs) through it. Its actual output:
@@ -117,21 +132,27 @@ A cancelled run — somebody pressed the button
   {
     "attributable": false,
     "reason": "RUN_CANCELLED",
-    "explanation": "the run was cancelled, which says a person or a policy stopped it and nothing about the code"
+    "explanation": "the run was cancelled, which says a person or a policy stopped it and nothing about the code",
+    "layer": "documented",
+    "evidence": "cancelled"
   }
 
 An infrastructure failure — the npm registry answered 503 during install
   {
     "attributable": false,
     "reason": "FAILING_STEP_IS_INFRASTRUCTURE",
-    "explanation": "the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository"
+    "explanation": "the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository",
+    "layer": "heuristic",
+    "evidence": "Install dependencies"
   }
 
 An infrastructure failure — a self-hosted runner died mid-suite, log only
   {
     "attributable": false,
     "reason": "INFRASTRUCTURE_IN_LOG",
-    "explanation": "the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested"
+    "explanation": "the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested",
+    "layer": "heuristic",
+    "evidence": "2026-08-24T10:52:18.7000000Z The self-hosted runner: builder-07 lost communication with the server."
   }
 ```
 
@@ -195,6 +216,28 @@ infrastructure.** A suite that exhausts the runner's memory may be a leak you
 introduced or may be a runner smaller than the job needs, and this library
 cannot tell which. Rejecting it would hide a real class of defect, so it falls
 through. There is a test that pins that behaviour.
+
+### Evidence is payload text
+
+`explanation` is this library's own sentence and quotes nothing. `evidence` is
+the opposite: it is the branch name, the step name or the log line, and every
+one of those was written by whoever opened the pull request or by whatever the
+job printed. It is handed back because a rejection you cannot explain to the
+person who filed it is a rejection you cannot argue with — the reason code says
+`FAILING_STEP_IS_INFRASTRUCTURE`, and the only thing that settles whether that
+was right is knowing the step was called `Install dependencies`.
+
+What is done to it before you get it: every control character becomes a space,
+so an ESC cannot start a terminal escape sequence in your log and a CR cannot
+overwrite the line above it; runs of whitespace collapse; the result is cut to
+`MAX_EVIDENCE_LENGTH` (200) characters, so one minified line in a log cannot
+become a megabyte in your database.
+
+What is not done to it: it is not escaped for HTML, for a shell, or for SQL,
+and it is not validated to be anything. **Display it; do not parse it, and
+escape it wherever you put it.** If you would rather not hold attacker-written
+text at all, ignore the field — everything else in the verdict is this
+library's own vocabulary.
 
 ## The known limitation, stated plainly
 
