@@ -8,11 +8,17 @@
  *
  * The payloads are hand-written from the field lists GitHub publishes for the
  * `workflow_run` webhook and for a jobs listing, read on 2026-08-25 and cited
- * in `src/attribution.ts`. Nothing here has ever spoken to GitHub. The same
- * four cases are asserted in `test/verdict.test.ts`, so this file cannot drift
- * away from what the library does.
+ * in `src/attribution.ts`. Nothing here has ever spoken to GitHub.
+ *
+ * Each case carries the verdict it expects and this file asserts it, so
+ * `npm run example` is a gate rather than a printout: a change to a reason, an
+ * explanation or the layer that decides fails here, in CI, and not only in the
+ * unit suite. The first three cases are also asserted in `test/verdict.test.ts`
+ * -- that duplication is deliberate, since it is what keeps the README's worked
+ * output and the library's behaviour pinned to each other from both sides.
  */
 
+import assert from 'node:assert/strict';
 import { ciVerdict } from '../dist/index.js';
 
 const repository = { full_name: 'acme/widgets', default_branch: 'main' };
@@ -66,12 +72,21 @@ const cases = [
         '2026-08-24T09:21:44.0000000Z ##[error]Process completed with exit code 1.',
       ].join('\n'),
     },
+    expected: { attributable: true },
   },
   {
     title: 'A cancelled run — somebody pressed the button',
     input: {
       workflowRun: run({ conclusion: 'cancelled' }),
       jobs: jobs({ name: 'unit (node 22)', conclusion: 'cancelled', steps: [] }),
+    },
+    expected: {
+      attributable: false,
+      reason: 'RUN_CANCELLED',
+      explanation:
+        'the run was cancelled, which says a person or a policy stopped it and nothing about the code',
+      layer: 'documented',
+      evidence: 'cancelled',
     },
   },
   {
@@ -94,6 +109,14 @@ const cases = [
         '2026-08-24T09:15:45.0000000Z ##[error]Process completed with exit code 1.',
       ].join('\n'),
     },
+    expected: {
+      attributable: false,
+      reason: 'FAILING_STEP_IS_INFRASTRUCTURE',
+      explanation:
+        'the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository',
+      layer: 'heuristic',
+      evidence: 'Install dependencies',
+    },
   },
   {
     title: 'An infrastructure failure — a self-hosted runner died mid-suite, log only',
@@ -105,12 +128,22 @@ const cases = [
         '2026-08-24T10:52:18.7000000Z Verify the machine is running and has a healthy network connection.',
       ].join('\n'),
     },
+    expected: {
+      attributable: false,
+      reason: 'INFRASTRUCTURE_IN_LOG',
+      explanation:
+        'the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested',
+      layer: 'heuristic',
+      evidence:
+        '2026-08-24T10:52:18.7000000Z The self-hosted runner: builder-07 lost communication with the server.',
+    },
   },
 ];
 
-for (const { title, input } of cases) {
+for (const { title, input, expected } of cases) {
   const verdict = ciVerdict(input);
   console.log(`\n${title}`);
   console.log(`  ${JSON.stringify(verdict, null, 2).split('\n').join('\n  ')}`);
+  assert.deepEqual(verdict, expected, title);
 }
 console.log('');

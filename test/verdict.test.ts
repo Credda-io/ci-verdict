@@ -135,10 +135,12 @@ describe('ciVerdict', () => {
 });
 
 /**
- * The three worked examples.
+ * The worked examples.
  *
- * `examples/three-runs.ts` prints exactly these and nothing else, so what the
- * README shows is what these assertions pin.
+ * `examples/three-runs.mjs` runs these, prints them, and asserts them against
+ * the built package -- so what the README shows is pinned from both sides. The
+ * example carries a fourth case, a runner that died with no jobs listing, which
+ * it asserts itself.
  */
 describe('worked examples', () => {
   it('1. a genuine test failure is attributable', () => {
