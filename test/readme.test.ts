@@ -66,3 +66,29 @@ describe("the README's worked output", () => {
     expect(quoted.trim()).toBe(printed.trim());
   });
 });
+
+/**
+ * The README claims an audit exists for BOTH heuristic pattern lists. That
+ * sentence is the kind that stays true in prose long after it stops being true
+ * in the suite -- the step-name half of it was false from the day the list was
+ * written until 2026-08-30. So the claim is tied to the two audits by name: a
+ * pattern list in `src/attribution.ts` with no `earns its place` block in the
+ * suite fails here, and so does deleting an audit while leaving the sentence.
+ */
+describe("the README's claim about the pattern audits", () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const suite = readFileSync(new URL('./attribution.test.ts', import.meta.url), 'utf8');
+
+  it('names both lists, and both lists are audited', () => {
+    expect(readme).toContain('one per entry in BOTH heuristic pattern lists');
+
+    const lists = [...source.matchAll(/const (INFRASTRUCTURE_\w+_PATTERNS): readonly RegExp\[\]/g)].map(
+      (match) => match[1],
+    );
+    expect(lists.sort()).toEqual(['INFRASTRUCTURE_LOG_PATTERNS', 'INFRASTRUCTURE_STEP_PATTERNS']);
+
+    for (const list of lists) {
+      expect(suite, `${list} has no per-entry audit`).toContain(`const block = /const ${list}`);
+    }
+  });
+});

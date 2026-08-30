@@ -589,3 +589,102 @@ describe('every infrastructure log pattern earns its place', () => {
     },
   );
 });
+
+/**
+ * The same audit for the step-name list, which had none.
+ *
+ * WHY THIS EXISTS. `INFRASTRUCTURE_LOG_PATTERNS` has the audit above;
+ * `INFRASTRUCTURE_STEP_PATTERNS` had nothing of the kind, and the difference
+ * was not visible from either list. Measured 2026-08-30: deleting
+ * `/^installing\b/i` from the module left all 183 tests passing, because no
+ * test anywhere named a step called "Installing dependencies". The other
+ * fifteen patterns were each reached by some step name asserted above, but
+ * incidentally -- nothing said they had to be.
+ *
+ * The two ordering traps from the log audit apply here too, and harder, since
+ * every pattern is anchored at `^` and several overlap: `Restore cache` is
+ * claimed by `/^restore (the )?(dependencies|packages|cache)\b/i` before the
+ * cache pattern ever sees it, and `Checkout` by the `actions/checkout` pattern
+ * before `/^check ?out\b/i`. So each sample is asserted to be matched by its
+ * own pattern and by NO EARLIER ONE, which is what makes it evidence that the
+ * pattern is the one deciding rather than a line some other pattern had
+ * already claimed.
+ */
+describe('every infrastructure step pattern earns its place', () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const block = /const INFRASTRUCTURE_STEP_PATTERNS: readonly RegExp\[\] = \[([\s\S]*?)\n\];/.exec(
+    source,
+  );
+
+  const literals = (block?.[1] ?? '')
+    .split('\n')
+    .map((line) => /^\s*(\/.*\/[a-z]*),\s*$/.exec(line.trim())?.[1])
+    .filter((literal): literal is string => literal !== undefined);
+
+  /* One step name per pattern, keyed by the pattern's own source text. A
+   * pattern added to the module and not to this table has no key here and
+   * fails the equality below. */
+  const SAMPLES: Readonly<Record<string, string>> = {
+    '/^set up job\\b/i': 'Set up job',
+    '/^complete job\\b/i': 'Complete job',
+    '/^post\\b/i': 'Post Run actions/checkout@v4',
+    '/^(actions\\/)?checkout\\b/i': 'actions/checkout@v4',
+    '/^check ?out\\b/i': 'Check out the repository',
+    '/^set ?up[ -](node|python|java|go|ruby|dotnet|\\.net|rust|php|xcode|jdk|msbuild|qemu|buildx|docker)\\b/i':
+      'Setup-Python 3.13',
+    '/^install (the )?(dependencies|deps|packages|toolchain|requirements)\\b/i':
+      'Install the requirements',
+    '/^installing\\b/i': 'Installing Rust toolchain',
+    '/^(npm|pnpm|yarn|bun|pip|pipenv|poetry|bundle|cargo|composer|go mod|gradle|mvn|maven) (ci|install|fetch|download|restore|sync)\\b/i':
+      'cargo fetch --locked',
+    '/^restore (the )?(dependencies|packages|cache)\\b/i': 'Restore the packages',
+    '/^(restore|save|warm|prime)?[ -]?cache\\b/i': 'Cache node modules',
+    '/^(upload|download)[ -]artifact\\b/i': 'Upload-artifact',
+    '/^(upload|download) (the )?artifacts?\\b/i': 'Download the artifacts',
+    '/^(log ?in|login|authenticate)\\b/i': 'Log in to GHCR',
+    '/^configure (aws|gcp|azure|google) credentials\\b/i': 'Configure AWS credentials',
+    '/^(docker )?(build and push|push image)\\b/i': 'Docker build and push',
+  };
+
+  it('finds the list it is auditing, so an empty pass cannot be a false one', () => {
+    expect(block).not.toBeNull();
+    expect(literals.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it('has one sample name for each pattern, and no sample for a pattern that is gone', () => {
+    expect(literals.slice().sort()).toEqual(Object.keys(SAMPLES).sort());
+  });
+
+  it.each(literals.map((literal, index) => [literal, index] as const))(
+    'pattern %s is the one that decides its sample',
+    (literal, index) => {
+      const sample = SAMPLES[literal];
+      expect(sample, `no sample step name for ${literal}`).toBeDefined();
+
+      const body = /^\/([\s\S]*)\/([a-z]*)$/.exec(literal);
+      expect(body).not.toBeNull();
+      const own = new RegExp(body?.[1] ?? '', body?.[2] ?? '');
+      expect(own.test(sample as string)).toBe(true);
+
+      /* No earlier pattern may claim it, or this one was never the reason. */
+      for (const earlier of literals.slice(0, index)) {
+        const parts = /^\/([\s\S]*)\/([a-z]*)$/.exec(earlier);
+        const before = new RegExp(parts?.[1] ?? '', parts?.[2] ?? '');
+        expect(
+          before.test(sample as string),
+          `${earlier} matches the sample for ${literal} and decides it first`,
+        ).toBe(false);
+      }
+
+      const rejection = classifyFailingStep({
+        name: sample as string,
+        number: 3,
+        status: 'completed',
+        conclusion: 'failure',
+      });
+      expect(rejection?.attributable).toBe(false);
+      expect(rejection?.reason).toBe('FAILING_STEP_IS_INFRASTRUCTURE');
+      expect(rejection?.layer).toBe('heuristic');
+    },
+  );
+});

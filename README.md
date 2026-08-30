@@ -23,7 +23,7 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **183 tests**, 125 of them on the classifier itself -- including one per entry in the infrastructure pattern list, each asserted to be the pattern that DECIDED its own sample line rather than merely to match it.
+- **202 tests**, 143 of them on the classifier itself -- including one per entry in BOTH heuristic pattern lists, the log lines and the step names, each asserted to be the pattern that DECIDED its own sample rather than merely to match it. The step list had no such audit until 2026-08-30, and one of its patterns could be deleted with the whole suite still green.
 - **Never measured against real runs.** The tests say it reads GitHub's enums
   correctly; nobody has scored its two heuristics, or its default, against a
   labelled set of real red runs, because none exists. [What that would
