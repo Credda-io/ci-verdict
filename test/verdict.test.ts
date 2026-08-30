@@ -1,9 +1,9 @@
 /**
  * `ciVerdict()` end to end, on payloads shaped like the real thing.
  *
- * The three scenarios at the bottom -- a genuine test failure, a cancelled run,
- * and an infrastructure failure -- are the ones the README shows. They are
- * asserted here so the README cannot drift away from what the code does.
+ * The four scenarios at the bottom are the ones the README shows. They are
+ * asserted here against the library; `test/readme.test.ts` is what holds the
+ * README itself to them.
  *
  * The bodies are hand-written from the field lists GitHub publishes, read on
  * 2026-08-25 and cited in `src/attribution.ts`. Nothing here has ever spoken to
@@ -137,10 +137,12 @@ describe('ciVerdict', () => {
 /**
  * The worked examples.
  *
- * `examples/three-runs.mjs` runs these, prints them, and asserts them against
- * the built package -- so what the README shows is pinned from both sides. The
- * example carries a fourth case, a runner that died with no jobs listing, which
- * it asserts itself.
+ * All four live as data in `examples/cases.mjs`. `examples/three-runs.mjs`
+ * runs them against the BUILT package and prints them; `test/readme.test.ts`
+ * runs them against `src/` and requires the README to quote the printout
+ * verbatim. They are restated here, in full, because these four are the ones a
+ * reader of the README is being shown, and a shared fixture that drifted would
+ * take the assertion with it.
  */
 describe('worked examples', () => {
   it('1. a genuine test failure is attributable', () => {

@@ -23,7 +23,7 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **154 tests**, 100 of them on the classifier itself.
+- **158 tests**, 100 of them on the classifier itself.
 - **Never measured against real runs.** The tests say it reads GitHub's enums
   correctly; nobody has scored its two heuristics, or its default, against a
   labelled set of real red runs, because none exists. [What that would
@@ -160,8 +160,12 @@ An infrastructure failure — a self-hosted runner died mid-suite, log only
   }
 ```
 
-The same four cases are asserted in [`test/verdict.test.ts`](test/verdict.test.ts),
-so this README cannot drift away from what the code does.
+That block is not transcribed. [`test/readme.test.ts`](test/readme.test.ts)
+renders it from the same four cases the example runs
+([`examples/cases.mjs`](examples/cases.mjs)) and fails if this file does not
+contain it verbatim, so a changed explanation cannot be fixed in the code and
+left wrong here. The same four cases are also asserted against the library in
+[`test/verdict.test.ts`](test/verdict.test.ts).
 
 ## The two layers, and why one of them may only ever say no
 
