@@ -23,7 +23,11 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **148 tests**, 94 of them on the classifier itself.
+- **154 tests**, 100 of them on the classifier itself.
+- **Never measured against real runs.** The tests say it reads GitHub's enums
+  correctly; nobody has scored its two heuristics, or its default, against a
+  labelled set of real red runs, because none exists. [What that would
+  take](#has-any-of-this-been-measured-no--and-here-is-what-it-would-take).
 
 Apache-2.0. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities:
 [SECURITY.md](SECURITY.md), privately.
@@ -262,6 +266,76 @@ failing test. A command that reproduces. An infrastructure failure that slips
 past both layers arrives with none of those, so a downstream requirement for one
 catches it without anybody writing another regex. That gate is your policy and
 is deliberately not in this library.
+
+## Has any of this been measured? No — and here is what it would take.
+
+Nothing in this repository has ever spoken to GitHub. Every payload in
+`test/` and in `examples/` was hand-written from the field lists GitHub
+publishes, cited by URL in `src/attribution.ts`. So there is no labelled set of
+real red runs here, and none anywhere else in the codebase this library was cut
+out of. **No number in this README is an accuracy number, because none has been
+earned.** That is a statement of fact, not modesty, and it should stay here
+until somebody changes it by measuring.
+
+**Most of the surface could not be measured anyway, and that is fine.** 14 of
+the 16 reason codes are layer 1: they read back an enum GitHub documents.
+`RUN_CANCELLED` fires when `conclusion` is `cancelled`. There is no ground truth
+to compare that against that is not the same field read a second time —
+labelling it would be circular. What layer 1 can be wrong about is *reading*,
+and reading is what `test/attribution.test.ts` checks.
+
+Three claims are genuinely falsifiable, and each needs different evidence:
+
+1. **Layer-2 precision.** When `FAILING_STEP_IS_INFRASTRUCTURE` or
+   `INFRASTRUCTURE_IN_LOG` rejects a run, was the failure really the pipeline?
+   A false rejection here silently drops a defect.
+2. **The residue.** [The known limitation](#the-known-limitation-stated-plainly)
+   says an unrecognised infrastructure failure comes back `attributable`. Nobody
+   knows how often. This is the number that matters most, because it is the one
+   the default is spending.
+3. **Whether the layer-1 policy exclusions cost anything.**
+   `TRIGGER_IS_NOT_A_MAINLINE_RUN` and `NOT_THE_DEFAULT_BRANCH` are choices, not
+   errors — they discard real defects on purpose. Measuring them means asking
+   whether the discarded ones were worth reporting, which is a product question
+   with no ground truth at all.
+
+**What an honest labelled set would require.**
+
+- **A sample drawn before anything is classified.** A fixed list of public
+  repositories and a fixed date window, written down first, so the sample is not
+  selected by what this library says about it.
+- **Deliveries plus jobs plus the failing job's log, per run.** The verdict
+  changes with the evidence given (see [How much evidence to give
+  it](#how-much-evidence-to-give-it)), so a corpus that is webhooks only can
+  only measure layers 1 and 2a.
+- **Forward capture, not a backfill.** Actions logs are retained for a limited
+  window and the log download URL GitHub hands back expires in about a minute.
+  A corpus of failing-job logs has to be collected as the runs happen. This is
+  the expensive constraint: it is weeks of wall-clock before anything can be
+  scored, not an afternoon of fetching.
+- **A label that is not this library's opinion, and not a model's.** The only
+  labels going that are neither a judgement nor a restatement of the input:
+  a re-run of the *same commit with no code change* that succeeds is evidence of
+  a non-repository failure; a failure that persists across subsequent commits
+  until a code change clears it is evidence of a repository one. Both are
+  execution, which is the right shape. Both are also imperfect, and the honest
+  reading is narrow: a re-run that goes green can equally be a flaky *test*,
+  which is the repository's own defect and should be attributable. Any corpus
+  built this way has to report that ambiguity rather than round it away.
+
+**Two ways of faking it, named so nobody reaches for them.** Labelling runs by
+asking a model to read the log measures the model. Labelling them by having a
+person read the log for words like "ECONNRESET" measures this library's keyword
+list against itself and will score near perfect while proving nothing. A
+measurement is only worth having when it can come back unflattering — which is
+exactly what happened to `repro-check`, the sibling library, the first time it
+was scored.
+
+**What a deployment can do today.** Count the reason codes, as [Reason
+codes](#reason-codes) describes. That distribution is a smoke test on your
+pipeline — nine hundred `INFRASTRUCTURE_IN_LOG` in a thousand means your CI is
+broken — and it is not a measurement of this library, because nothing in it
+knows whether any single verdict was right. Do not report it as one.
 
 ## Reason codes
 
