@@ -36,3 +36,5 @@ jobs:
       # The worked example in the README, run. It builds first, so this also
       # proves the published entry points resolve.
       - run: npm run example
+      # The two test counts the README publishes, against the tests collected.
+      - run: npm run check:readme

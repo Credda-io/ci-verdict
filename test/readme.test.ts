@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 // with `examples/three-runs.mjs`, which cannot import a TypeScript module.
 import { cases } from '../examples/cases.mjs';
 import { ciVerdict } from '../src/verdict.js';
+import { CI_NOT_A_DEFECT_REASONS } from '../src/attribution.js';
 import type { CiAttribution, CiVerdictInput } from '../src/index.js';
 
 interface WorkedCase {
@@ -90,5 +91,52 @@ describe("the README's claim about the pattern audits", () => {
     for (const list of lists) {
       expect(suite, `${list} has no per-entry audit`).toContain(`const block = /const ${list}`);
     }
+  });
+});
+
+/**
+ * The reason-code tables, against the code that emits them.
+ *
+ * `CI_NOT_A_DEFECT_REASONS` is exported for callers to count against, and the
+ * README publishes it as three tables plus one arithmetic sentence -- "14 of
+ * the 16 reason codes are layer 1". Nothing compared any of that to the array.
+ * A code added to the union and not to a table is a code a reader cannot look
+ * up; a row left behind for a code that is gone documents something the
+ * library can no longer emit; and the sentence is the kind that is written
+ * once and never re-counted. All three are mechanical, so they are checked
+ * here rather than trusted.
+ */
+describe("the README's reason codes", () => {
+  /** The code column of the table under one `###` heading, that heading only. */
+  const table = (heading: string): readonly string[] => {
+    const start = readme.indexOf(`### ${heading}`);
+    expect(start, `the README has no "### ${heading}" section`).not.toBe(-1);
+    const next = /\n##+ /.exec(readme.slice(start + 1));
+    const section = readme.slice(start, next === null ? undefined : start + 1 + next.index);
+    return [...section.matchAll(/^\| `([A-Z_]+)` \|/gm)].map((match) => match[1] as string);
+  };
+
+  const documented = [
+    ...table("Layer 1 — run level (GitHub's documented enums)"),
+    ...table("Layer 1 — job level (GitHub's documented enums)"),
+    ...table('Layer 2 — heuristic (may only reject)'),
+  ];
+
+  it('are the codes the library can emit, in both directions', () => {
+    // An empty extraction would make the comparison below pass against an
+    // empty union and fail against a real one; asserted first either way.
+    expect(documented.length).toBeGreaterThan(0);
+    expect([...documented].sort()).toEqual([...CI_NOT_A_DEFECT_REASONS].sort());
+  });
+
+  it('are counted correctly in the prose that adds them up', () => {
+    const heuristic = table('Layer 2 — heuristic (may only reject)');
+    expect(heuristic.length).toBeGreaterThan(0);
+    const layerOne = CI_NOT_A_DEFECT_REASONS.length - heuristic.length;
+    // The sentence wraps in the source, so the README is compared with its
+    // line breaks flattened rather than with the claim written twice.
+    expect(readme.replace(/\s+/g, ' ')).toContain(
+      `${layerOne} of the ${CI_NOT_A_DEFECT_REASONS.length} reason codes are layer 1`,
+    );
   });
 });
