@@ -23,7 +23,7 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **158 tests**, 100 of them on the classifier itself.
+- **183 tests**, 125 of them on the classifier itself -- including one per entry in the infrastructure pattern list, each asserted to be the pattern that DECIDED its own sample line rather than merely to match it.
 - **Never measured against real runs.** The tests say it reads GitHub's enums
   correctly; nobody has scored its two heuristics, or its default, against a
   labelled set of real red runs, because none exists. [What that would
@@ -513,7 +513,7 @@ somebody else's build.
 ```
 npm install
 npm run typecheck   # tsc, strict, noUncheckedIndexedAccess
-npm test            # vitest, 148 tests
+npm test            # vitest; the count is in the summary above, not here twice
 npm run build       # tsc → dist/, ESM + .d.ts
 npm run check       # all three
 npm run example     # build, then run the four worked runs

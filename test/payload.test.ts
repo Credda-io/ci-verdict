@@ -92,7 +92,25 @@ describe('jobFactsFrom and jobFactsListFrom', () => {
   });
 
   it('reads a bare array too, which is what a paginating caller holds', () => {
-    expect(jobFactsListFrom(listing.jobs)).toEqual(jobFactsListFrom(listing));
+    /* Asserted against written-down facts rather than against
+     * `jobFactsListFrom(listing)`. Comparing the function's two answers to
+     * each other passes for any implementation that is merely CONSISTENT,
+     * including one that returns [] for both, which is the shape this test
+     * was written in and the reason it proved nothing about either form. */
+    const jobs = jobFactsListFrom(listing.jobs);
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]?.name).toBe('lint');
+    expect(jobs[0]?.conclusion).toBe('success');
+    expect(jobs[1]?.name).toBe('unit');
+    expect(jobs[1]?.conclusion).toBe('failure');
+    expect(jobs[1]?.steps[1]).toEqual({
+      name: 'pnpm test',
+      number: 2,
+      status: 'completed',
+      conclusion: 'failure',
+    });
+    /* And the two forms agree, which is the claim in the title. */
+    expect(jobs).toEqual(jobFactsListFrom(listing));
   });
 
   it('drops steps that are not objects rather than failing the whole listing', () => {

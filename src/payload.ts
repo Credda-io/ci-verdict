@@ -3,8 +3,15 @@
  *
  * `attribution.ts` deliberately takes plain records rather than raw payloads,
  * so that its rules are readable and testable without a webhook body. This
- * module is the adapter between the two, and it is the only place in the
- * package that touches an untyped object.
+ * module is the adapter between the two.
+ *
+ * It used to say it was "the only place in the package that touches an untyped
+ * object", and that stopped being true when `toolchain.ts` joined the package:
+ * `readPin()` there parses a `package.json` into `unknown` and narrows it the
+ * same way. The claim was load-bearing in the wrong direction -- it is the
+ * reason a reader would audit this file alone for totality and stop -- so it
+ * is stated as what it is. There are TWO such places, they are this file and
+ * `readPin()`, and both are total for the same reason.
  *
  * Everything here is total. A field of the wrong type, a missing object, an
  * array of nulls -- each becomes the absence of a fact, never an exception.

@@ -11,6 +11,7 @@
  * repository.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CI_NOT_A_DEFECT_REASONS,
@@ -475,4 +476,116 @@ describe('every rejection says which layer decided it and what it saw', () => {
     expect(rejection?.evidence?.length).toBe(MAX_EVIDENCE_LENGTH);
     expect(rejection?.evidence?.endsWith('\u2026')).toBe(true);
   });
+});
+
+/**
+ * Every infrastructure pattern is the one that decided at least one line.
+ *
+ * WHY THIS EXISTS. `INFRASTRUCTURE_LOG_PATTERNS` is the list that decides
+ * whether a red run is the repository's fault, and the tests above reached
+ * fourteen of its twenty-two entries. The other eight -- a deprovisioned
+ * runner, a TLS handshake timeout, `503 Service Unavailable`, an exhausted
+ * API rate limit -- could be deleted one by one and every suite, the worked
+ * example and both CI jobs would stay green, while the package began
+ * answering `attributable: true` about a registry outage. A confident wrong
+ * accusation is the expensive failure this classifier exists to avoid, so
+ * the list is held to a sample rather than to a suite's exit code.
+ *
+ * THE PATTERNS ARE READ FROM THE SOURCE, not imported, because exporting a
+ * private constant to be tested changes the package's surface to suit its
+ * tests. Reading the module as text is what `test/package.test.ts` already
+ * does, and it has the property that matters here: a pattern ADDED without a
+ * sample fails, because the table below is keyed by the pattern's own source.
+ *
+ * "DECIDED" IS THE POINT, and it is stronger than "matched".
+ * `classifyFailureLog` returns on the FIRST hit, so a sample that matches two
+ * patterns only ever proves the earlier one -- which is how
+ * `/fatal: unable to access/i` came to be reached by a line that
+ * `/Could not resolve host/i` had already claimed. Each sample below is
+ * therefore asserted to be matched by its own pattern and by no earlier one.
+ */
+describe('every infrastructure log pattern earns its place', () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const block = /const INFRASTRUCTURE_LOG_PATTERNS: readonly RegExp\[\] = \[([\s\S]*?)\n\];/.exec(
+    source,
+  );
+
+  const literals = (block?.[1] ?? '')
+    .split('\n')
+    .map((line) => /^\s*(\/.*\/[a-z]*),\s*$/.exec(line.trim())?.[1])
+    .filter((literal): literal is string => literal !== undefined);
+
+  /* One line per pattern, keyed by the pattern's own source text. A pattern
+   * added to the module and not to this table has no key here and fails. */
+  const SAMPLES: Readonly<Record<string, string>> = {
+    '/The runner has received a shutdown signal/i':
+      'The runner has received a shutdown signal. Stopping.',
+    '/lost communication with the server/i':
+      'The self-hosted runner lost communication with the server.',
+    '/The operation was canceled/i': 'Error: The operation was canceled.',
+    '/No space left on device/i': "tar: write error: No space left on device",
+    '/Received request to deprovision/i': 'Received request to deprovision: The request was cancelled by the remote provider.',
+    '/getaddrinfo (ENOTFOUND|EAI_AGAIN)/i': 'npm error getaddrinfo ENOTFOUND registry.npmjs.example',
+    '/Temporary failure in name resolution/i':
+      'curl: (6) Could not resolve proxy: Temporary failure in name resolution',
+    '/Could not resolve host/i': 'fatal: Could not resolve host: github.example',
+    '/\\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH)\\b/':
+      'Error: connect ECONNREFUSED 10.0.0.1:443',
+    '/TLS handshake timeout/i': 'net/http: TLS handshake timeout',
+    '/SSL_ERROR_SYSCALL/': 'OpenSSL SSL_read: SSL_ERROR_SYSCALL, errno 104',
+    '/\\b(429 Too Many Requests|502 Bad Gateway|503 Service Unavailable|504 Gateway Time-?out)\\b/i':
+      'Received 503 Service Unavailable from the package mirror',
+    '/npm ERR! network/i': 'npm ERR! network request to https://registry.example failed',
+    '/ERR_PNPM_FETCH_/': ' ERR_PNPM_FETCH_500  GET https://registry.example: Internal Server Error',
+    '/error: RPC failed/i': 'error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly',
+    '/fatal: unable to access/i':
+      "fatal: unable to access 'https://github.example/o/r.git/': Empty reply from server",
+    '/The requested URL returned error: 5\\d\\d/':
+      'The requested URL returned error: 502',
+    '/failed to (fetch|download) (metadata|oauth token|the )/i':
+      'failed to fetch oauth token: unexpected status from GET request',
+    '/API rate limit exceeded/i': 'API rate limit exceeded for installation ID 1.',
+    '/\\bBad credentials\\b/': 'gh: Bad credentials (HTTP 401)',
+    '/remote: Repository not found/i': 'remote: Repository not found.',
+    '/(authentication|authorization) (required|failed)/i':
+      'denied: authorization failed for the container registry',
+    '/toomanyrequests: (You have reached|Rate exceeded)/i':
+      'toomanyrequests: You have reached your pull rate limit.',
+  };
+
+  it('finds the list it is auditing, so an empty pass cannot be a false one', () => {
+    expect(block).not.toBeNull();
+    expect(literals.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('has one sample line for each pattern, and no sample for a pattern that is gone', () => {
+    expect(literals.slice().sort()).toEqual(Object.keys(SAMPLES).sort());
+  });
+
+  it.each(literals.map((literal, index) => [literal, index] as const))(
+    'pattern %s is the one that decides its sample',
+    (literal, index) => {
+      const sample = SAMPLES[literal];
+      expect(sample, `no sample line for ${literal}`).toBeDefined();
+
+      const body = /^\/([\s\S]*)\/([a-z]*)$/.exec(literal);
+      expect(body).not.toBeNull();
+      const own = new RegExp(body?.[1] ?? '', body?.[2] ?? '');
+      expect(own.test(sample as string)).toBe(true);
+
+      /* No earlier pattern may claim it, or this one was never the reason. */
+      for (const earlier of literals.slice(0, index)) {
+        const parts = /^\/([\s\S]*)\/([a-z]*)$/.exec(earlier);
+        const before = new RegExp(parts?.[1] ?? '', parts?.[2] ?? '');
+        expect(
+          before.test(sample as string),
+          `${earlier} matches the sample for ${literal} and decides it first`,
+        ).toBe(false);
+      }
+
+      const rejection = classifyFailureLog(sample as string);
+      expect(rejection?.attributable).toBe(false);
+      expect(rejection?.reason).toBe('INFRASTRUCTURE_IN_LOG');
+    },
+  );
 });
