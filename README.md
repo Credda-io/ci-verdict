@@ -72,7 +72,7 @@ can be, and made cautiously where it cannot.
 npm install ci-verdict
 ```
 
-> **Not on npm yet — checked 2026-08-28.** `https://registry.npmjs.org/ci-verdict`
+> **Not on npm yet — checked 2026-08-30.** `https://registry.npmjs.org/ci-verdict`
 > returns 404, so the command above fails today. Until `0.1.0` is published, use
 > it from a checkout of this repository. This is the only claim in this README
 > that is about the future; everything below is about the code in this repo, and
