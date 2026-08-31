@@ -1,5 +1,6 @@
-# Typecheck, test, build. The same three things `npm run check` runs locally, so
-# a green CI and a green working copy mean the same thing.
+# Typecheck, test, build, check:readme. The same four things `npm run check`
+# runs locally, so a green CI and a green working copy mean the same thing.
+# (`npm run example` below is the fifth step here and is not in `check`.)
 #
 # The matrix is not about coverage of Node's standard library -- this package
 # does not use it, and there is a test that fails if it ever starts. It is about
