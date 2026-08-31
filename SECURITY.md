@@ -15,8 +15,24 @@ What helps, in rough order:
 - the smallest input that demonstrates it
 - the version or commit you were on
 
-If you would rather not use GitHub, [credda.io](https://credda.io) has the
-contact details.
+If you would rather not use GitHub, email
+[security@credda.io](mailto:security@credda.io?subject=Security%20disclosure).
+It is a small internal group, not a personal mailbox, and it is the address
+published at
+[credda.io/.well-known/security.txt](https://credda.io/.well-known/security.txt)
+under RFC 9116 — so you can confirm it against a served artifact rather than
+trusting a file in a repository.
+
+**What to expect**, and these are commitments we can meet rather than
+aspirational ones: acknowledgement within **3 business days**, an initial
+assessment and severity call within **10 business days**, progress updates while
+we work a confirmed issue, and credit if you want it once a fix has shipped.
+There is no paid bounty programme; we would rather say that plainly than let you
+find it out after the work.
+
+The full org-wide policy — scope, safe harbor, and how we handle a report about
+ourselves — is
+[`Credda-io/.github/SECURITY.md`](https://github.com/Credda-io/.github/blob/main/SECURITY.md).
 
 ## What this package is, and therefore what its attack surface is
 
