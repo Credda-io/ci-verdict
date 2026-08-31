@@ -57,8 +57,11 @@ opens none unless you set its `open-pull-request` input, which defaults to
 `false`, **and** add `contents: write` and `pull-requests: write` to your own
 workflow's `permissions:` block, which a default install does not grant. Turning
 the input on without both scopes fails at that step rather than opening
-anything. How often a run reaches a proven fix at all has not been measured. It
-proposes and never merges.
+anything -- and that input is declared on no version a caller can reach: it is
+absent from `action.yml` at the `v1` tag and on the action's default branch
+alike, so setting it today parses, runs green and delivers nothing. How often a
+run reaches a proven fix at all has not been measured. It proposes and never
+merges.
 
 Everything in that sentence rests on a red run meaning something. An agent that
 investigates an npm registry outage as though it were a defect wastes a sandbox
