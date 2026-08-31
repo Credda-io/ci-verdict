@@ -49,8 +49,9 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "check:readme": "node scripts/check-readme-counts.mjs",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test && npm run build",
+    "check": "npm run typecheck && npm run test && npm run build && npm run check:readme",
     "prepublishOnly": "npm run check",
     "example": "npm run build && node examples/three-runs.mjs"
   }

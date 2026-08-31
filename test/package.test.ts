@@ -68,26 +68,48 @@ describe('the package stands alone', () => {
     expect(specifiersIn(index).length).toBeGreaterThan(0);
   });
 
-  it('re-exports the whole public surface from the entry point', () => {
-    const index = readFileSync(join(root, 'src', 'index.ts'), 'utf8');
-    for (const name of [
-      'ciVerdict',
-      'classifyWorkflowRun',
-      'classifyJobOutcome',
-      'classifyFailingStep',
-      'classifyFailureLog',
-      'findFailedJob',
-      'findFailedStep',
-      'logTail',
-      'MAX_LOG_SCAN_BYTES',
-      'CI_NOT_A_DEFECT_REASONS',
-      'workflowRunFactsFrom',
-      'jobFactsListFrom',
-      'resolvePackageManager',
-      'relaxedInstall',
-      'PACKAGE_MANAGERS',
-    ]) {
-      expect(index).toContain(name);
-    }
+  /**
+   * The entry point's runtime exports, both directions.
+   *
+   * This read `src/index.ts` AS TEXT and asserted `toContain(name)` for a list
+   * of fifteen. A name that survives only in a docblock passes that; so does an
+   * export renamed while the old spelling lingers in a comment; and two real
+   * exports -- `MAX_EVIDENCE_LENGTH` and `jobFactsFrom` -- were missing from
+   * the list without anything noticing, which is the other direction of the
+   * same hole. So the module is IMPORTED and its own binding names are
+   * compared, which is what a consumer of the package actually gets.
+   *
+   * Types are absent on purpose: they do not exist at run time, and holding
+   * them is `npm run typecheck`'s job, not this one's.
+   */
+  it('re-exports the whole public surface from the entry point, and nothing else', async () => {
+    const surface = (await import('../src/index.js')) as Record<string, unknown>;
+    const exported = Object.keys(surface).sort();
+
+    expect(exported).toEqual(
+      [
+        'CI_NOT_A_DEFECT_REASONS',
+        'MAX_EVIDENCE_LENGTH',
+        'MAX_LOG_SCAN_BYTES',
+        'PACKAGE_MANAGERS',
+        'ciVerdict',
+        'classifyFailingStep',
+        'classifyFailureLog',
+        'classifyJobOutcome',
+        'classifyWorkflowRun',
+        'findFailedJob',
+        'findFailedStep',
+        'jobFactsFrom',
+        'jobFactsListFrom',
+        'logTail',
+        'relaxedInstall',
+        'resolvePackageManager',
+        'workflowRunFactsFrom',
+      ].sort(),
+    );
+
+    /* And every one of them is really there to be called or read, rather than
+     * being a name the module system left behind. */
+    for (const name of exported) expect(surface[name], name).toBeDefined();
   });
 });

@@ -63,7 +63,11 @@
  *
  * SECURITY: everything read here came off an attacker-influenced payload. No
  * payload text is interpolated into an `explanation`; those are this library's
- * own sentences, because they end up in a log line and a database row.
+ * own sentences, because they end up in a log line and a database row. The
+ * `evidence` field is the one place payload text is handed back, and it is
+ * handed back through `quote()` -- one line, control characters removed,
+ * length bounded -- so a caller who logs it cannot be made to log a megabyte
+ * or a terminal escape sequence.
  */
 
 /**
@@ -101,6 +105,48 @@ export const CI_NOT_A_DEFECT_REASONS = [
 export type CiNotADefectReason = (typeof CI_NOT_A_DEFECT_REASONS)[number];
 
 /**
+ * Which of the two layers decided.
+ *
+ * The README's central claim is that these are not the same kind of statement:
+ * `documented` is GitHub's own enum read back, `heuristic` is this library's
+ * guess about wording nobody specifies. A caller who wants to act only on the
+ * certain half had no way to tell them apart without hardcoding a list of
+ * reason codes, which would go stale the first time one was added.
+ */
+export type CiLayer = 'documented' | 'heuristic';
+
+/** The reasons layer 2 can produce. Everything else is layer 1. */
+const HEURISTIC_REASONS: ReadonlySet<string> = new Set<CiNotADefectReason>([
+  'FAILING_STEP_IS_INFRASTRUCTURE',
+  'INFRASTRUCTURE_IN_LOG',
+]);
+
+/**
+ * The longest excerpt of payload text a rejection will carry.
+ *
+ * A step name is short; a log line is whatever somebody printed, and a
+ * minified bundle on one line is a megabyte of it. The bound is on what a
+ * caller ends up storing per rejection, so it is small on purpose.
+ */
+export const MAX_EVIDENCE_LENGTH = 200;
+
+/**
+ * Payload text, made safe to put in a log line.
+ *
+ * Every control character -- including the ESC that starts a terminal escape
+ * sequence, and the CR that lets a crafted log line overwrite the one before
+ * it -- becomes a space, runs of whitespace collapse, and the result is cut to
+ * `MAX_EVIDENCE_LENGTH` with an ellipsis. Empty text answers null, because the
+ * absence of evidence is a fact and the empty string reads like one.
+ */
+function quote(text: string | null): string | null {
+  if (typeof text !== 'string') return null;
+  const flat = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (flat === '') return null;
+  return flat.length <= MAX_EVIDENCE_LENGTH ? flat : `${flat.slice(0, MAX_EVIDENCE_LENGTH - 1)}\u2026`;
+}
+
+/**
  * The verdict.
  *
  * A discriminated union rather than a boolean and a string, so that reading
@@ -113,6 +159,19 @@ export type CiAttribution =
       readonly reason: CiNotADefectReason;
       /** One line, this library's own words. Quotes nothing off the payload. */
       readonly explanation: string;
+      /**
+       * Whether GitHub's documented enums decided this, or a heuristic did.
+       * See `CiLayer`.
+       */
+      readonly layer: CiLayer;
+      /**
+       * The one thing that decided it, as it appeared: the conclusion, the
+       * triggering event, the branch, the job or step name, the matching log
+       * line. Null when the reason is the *absence* of a field, since there is
+       * nothing to show. Sanitised and bounded -- see `quote()` -- but still
+       * attacker-influenced text: display it, do not parse it.
+       */
+      readonly evidence: string | null;
     };
 
 /**
@@ -160,8 +219,14 @@ const EXPLANATIONS: Readonly<Record<CiNotADefectReason, string>> = {
     'the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested',
 };
 
-function reject(reason: CiNotADefectReason): CiRejection {
-  return { attributable: false, reason, explanation: EXPLANATIONS[reason] };
+function reject(reason: CiNotADefectReason, evidence: string | null = null): CiRejection {
+  return {
+    attributable: false,
+    reason,
+    explanation: EXPLANATIONS[reason],
+    layer: HEURISTIC_REASONS.has(reason) ? 'heuristic' : 'documented',
+    evidence: quote(evidence),
+  };
 }
 
 const ATTRIBUTABLE: CiAttribution = { attributable: true };
@@ -213,33 +278,33 @@ export interface WorkflowRunFacts {
  * cancelled is the fact that decides it.
  */
 export function classifyWorkflowRun(facts: WorkflowRunFacts): CiAttribution {
-  if (facts.action !== 'completed') return reject('RUN_NOT_COMPLETED');
+  if (facts.action !== 'completed') return reject('RUN_NOT_COMPLETED', facts.action);
   // `status` is absent on some serializations; only an explicit non-completed
   // status is a rejection, because inferring "not completed" from a missing
   // field would reject every run whose payload simply omitted it.
-  if (facts.status !== null && facts.status !== 'completed') return reject('RUN_NOT_COMPLETED');
+  if (facts.status !== null && facts.status !== 'completed') return reject('RUN_NOT_COMPLETED', facts.status);
 
   switch (facts.conclusion) {
     case 'failure':
       break;
     case 'cancelled':
-      return reject('RUN_CANCELLED');
+      return reject('RUN_CANCELLED', facts.conclusion);
     case 'timed_out':
-      return reject('RUN_TIMED_OUT');
+      return reject('RUN_TIMED_OUT', facts.conclusion);
     case 'action_required':
-      return reject('RUN_NEEDS_ACTION');
+      return reject('RUN_NEEDS_ACTION', facts.conclusion);
     case 'stale':
-      return reject('RUN_STALE');
+      return reject('RUN_STALE', facts.conclusion);
     default:
       // `success`, `neutral`, `skipped`, null, and any value GitHub adds after
       // this was written. An unknown conclusion is NOT a failure: treating an
       // unrecognised enum value as one would turn a future platform change into
       // a wave of false reports.
-      return reject('RUN_DID_NOT_FAIL');
+      return reject('RUN_DID_NOT_FAIL', facts.conclusion);
   }
 
   if (facts.triggeringEvent === null || !MAINLINE_TRIGGERS.has(facts.triggeringEvent)) {
-    return reject('TRIGGER_IS_NOT_A_MAINLINE_RUN');
+    return reject('TRIGGER_IS_NOT_A_MAINLINE_RUN', facts.triggeringEvent);
   }
 
   const defaultBranch = (facts.defaultBranch ?? '').trim();
@@ -248,7 +313,7 @@ export function classifyWorkflowRun(facts: WorkflowRunFacts): CiAttribution {
   // the mainline from a red topic branch, and guessing `main` would be wrong
   // for every repository that never renamed `master` and for every fork.
   if (defaultBranch === '') return reject('DEFAULT_BRANCH_NOT_STATED');
-  if (headBranch === '' || headBranch !== defaultBranch) return reject('NOT_THE_DEFAULT_BRANCH');
+  if (headBranch === '' || headBranch !== defaultBranch) return reject('NOT_THE_DEFAULT_BRANCH', headBranch);
 
   if ((facts.repositoryFullName ?? '').trim() === '' || (facts.workflowPath ?? '').trim() === '') {
     return reject('RUN_PAYLOAD_INCOMPLETE');
@@ -293,15 +358,20 @@ export function findFailedJob(jobs: readonly JobFacts[]): JobFacts | null {
  * were cancelled or timed out produces a specific reason rather than a bare
  * "nothing failed".
  */
+/** The name of the first job with a given conclusion, for evidence. */
+function jobNameWith(jobs: readonly JobFacts[], conclusion: string): string | null {
+  return jobs.find((job) => job.conclusion === conclusion)?.name ?? null;
+}
+
 export function classifyJobOutcome(jobs: readonly JobFacts[]): CiAttribution {
   if (findFailedJob(jobs) !== null) return ATTRIBUTABLE;
 
   // Nothing failed. Say which of the documented non-failures it was, preferring
   // the one that most explains a red run.
   const conclusions = new Set(jobs.map((job) => job.conclusion));
-  if (conclusions.has('timed_out')) return reject('JOB_TIMED_OUT');
-  if (conclusions.has('action_required')) return reject('JOB_NEEDS_ACTION');
-  if (conclusions.has('cancelled')) return reject('JOB_CANCELLED');
+  if (conclusions.has('timed_out')) return reject('JOB_TIMED_OUT', jobNameWith(jobs, 'timed_out'));
+  if (conclusions.has('action_required')) return reject('JOB_NEEDS_ACTION', jobNameWith(jobs, 'action_required'));
+  if (conclusions.has('cancelled')) return reject('JOB_CANCELLED', jobNameWith(jobs, 'cancelled'));
   return reject('NO_JOB_FAILED');
 }
 
@@ -375,7 +445,7 @@ export function classifyFailingStep(step: StepFacts | null): CiRejection | null 
   const name = (step?.name ?? '').trim();
   if (name === '') return null;
   return INFRASTRUCTURE_STEP_PATTERNS.some((pattern) => pattern.test(name))
-    ? reject('FAILING_STEP_IS_INFRASTRUCTURE')
+    ? reject('FAILING_STEP_IS_INFRASTRUCTURE', name)
     : null;
 }
 
@@ -441,9 +511,24 @@ const INFRASTRUCTURE_LOG_PATTERNS: readonly RegExp[] = [
  */
 export function classifyFailureLog(log: string): CiRejection | null {
   if (typeof log !== 'string' || log === '') return null;
-  return INFRASTRUCTURE_LOG_PATTERNS.some((pattern) => pattern.test(log))
-    ? reject('INFRASTRUCTURE_IN_LOG')
-    : null;
+  for (const pattern of INFRASTRUCTURE_LOG_PATTERNS) {
+    const match = pattern.exec(log);
+    if (match !== null) return reject('INFRASTRUCTURE_IN_LOG', lineAround(log, match.index));
+  }
+  return null;
+}
+
+/**
+ * The whole line a match fell on.
+ *
+ * A bare match is `ECONNRESET` and tells an operator nothing they did not
+ * already have from the reason code. The line it sits on is the thing worth
+ * putting in front of them, and `quote()` bounds it.
+ */
+function lineAround(log: string, at: number): string {
+  const start = log.lastIndexOf('\n', at) + 1;
+  const end = log.indexOf('\n', at);
+  return log.slice(start, end === -1 ? undefined : end);
 }
 
 /**

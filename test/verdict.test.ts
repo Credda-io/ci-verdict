@@ -1,9 +1,9 @@
 /**
  * `ciVerdict()` end to end, on payloads shaped like the real thing.
  *
- * The three scenarios at the bottom -- a genuine test failure, a cancelled run,
- * and an infrastructure failure -- are the ones the README shows. They are
- * asserted here so the README cannot drift away from what the code does.
+ * The four scenarios at the bottom are the ones the README shows. They are
+ * asserted here against the library; `test/readme.test.ts` is what holds the
+ * README itself to them.
  *
  * The bodies are hand-written from the field lists GitHub publishes, read on
  * 2026-08-25 and cited in `src/attribution.ts`. Nothing here has ever spoken to
@@ -135,10 +135,14 @@ describe('ciVerdict', () => {
 });
 
 /**
- * The three worked examples.
+ * The worked examples.
  *
- * `examples/three-runs.ts` prints exactly these and nothing else, so what the
- * README shows is what these assertions pin.
+ * All four live as data in `examples/cases.mjs`. `examples/three-runs.mjs`
+ * runs them against the BUILT package and prints them; `test/readme.test.ts`
+ * runs them against `src/` and requires the README to quote the printout
+ * verbatim. They are restated here, in full, because these four are the ones a
+ * reader of the README is being shown, and a shared fixture that drifted would
+ * take the assertion with it.
  */
 describe('worked examples', () => {
   it('1. a genuine test failure is attributable', () => {
@@ -175,6 +179,8 @@ describe('worked examples', () => {
       reason: 'RUN_CANCELLED',
       explanation:
         'the run was cancelled, which says a person or a policy stopped it and nothing about the code',
+      layer: 'documented',
+      evidence: 'cancelled',
     });
   });
 
@@ -205,6 +211,8 @@ describe('worked examples', () => {
       reason: 'FAILING_STEP_IS_INFRASTRUCTURE',
       explanation:
         'the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository',
+      layer: 'heuristic',
+      evidence: 'Install dependencies',
     });
 
     // And the log alone would have caught it too, which is the point of having
@@ -228,6 +236,9 @@ describe('worked examples', () => {
       reason: 'INFRASTRUCTURE_IN_LOG',
       explanation:
         'the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested',
+      layer: 'heuristic',
+      evidence:
+        '2026-08-24T10:52:18.7000000Z The self-hosted runner: builder-07 lost communication with the server.',
     });
   });
 });

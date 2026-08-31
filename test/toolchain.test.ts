@@ -232,15 +232,71 @@ describe('relaxedInstall', () => {
     ]);
   });
 
+  /**
+   * Every install the resolver can produce has a known relaxation, or is
+   * deliberately already the relaxed one.
+   *
+   * This called itself the guard against a resolver change outrunning
+   * `relaxedInstall`, and it was a hand-written list of five commands: a
+   * resolver that started emitting a sixth strict install would leave it
+   * passing on the five it still knew, which is precisely what it says it
+   * prevents. So the commands are now ASKED OF the resolver -- every branch of
+   * it is driven below -- and the set it produces is compared with this table
+   * in both directions. A new command has no row and fails; a row for a
+   * command the resolver no longer emits fails too.
+   *
+   * `corepack prepare` is not an install and carries a version, so it is
+   * excluded by name and its own null is asserted above.
+   */
   it('resolves a fallback for every install command the resolver can produce', () => {
-    // The guard against a resolver change silently outrunning this function.
-    const strict = [
-      ['npm', 'ci'],
-      ['yarn', 'install', '--frozen-lockfile'],
-      ['yarn', 'install', '--immutable'],
-      ['pnpm', 'install', '--frozen-lockfile'],
-      ['bun', 'install', '--frozen-lockfile'],
+    const RELAXATION: Readonly<Record<string, readonly string[] | null>> = {
+      'npm ci': ['npm', 'install'],
+      // Already the relaxed form: no lockfile, nothing to drop.
+      'npm install': null,
+      'pnpm install --frozen-lockfile': ['pnpm', 'install', '--no-frozen-lockfile'],
+      'yarn install --frozen-lockfile': ['yarn', 'install'],
+      'yarn install --immutable': ['yarn', 'install'],
+      'bun install --frozen-lockfile': ['bun', 'install'],
+      'bun install': null,
+    };
+
+    const berryLock = '__metadata:\n  version: 6\n';
+    const every: readonly ToolchainInputs[] = [
+      inputs(['package.json']),
+      inputs(['package.json', 'package-lock.json']),
+      inputs(['package.json', 'npm-shrinkwrap.json']),
+      inputs(['package.json', 'package-lock.json'], { packageJson: pinned('npm@10.9.0') }),
+      inputs(['package.json'], { packageJson: pinned('npm@10.9.0') }),
+      inputs(['package.json', 'pnpm-lock.yaml'], { pnpmLock: "lockfileVersion: '5.4'\n" }),
+      inputs(['package.json', 'pnpm-lock.yaml'], { pnpmLock: "lockfileVersion: '9.0'\n" }),
+      inputs(['package.json'], { packageJson: pinned('pnpm@9.1.0') }),
+      inputs(['package.json', 'yarn.lock'], { yarnLock: '# yarn lockfile v1\n' }),
+      inputs(['package.json', 'yarn.lock'], { yarnLock: berryLock }),
+      inputs(['package.json', '.yarnrc.yml']),
+      inputs(['package.json'], { packageJson: pinned('yarn@1.22.22') }),
+      inputs(['package.json'], { packageJson: pinned('yarn@4.1.0') }),
+      inputs(['package.json', 'bun.lockb']),
+      inputs(['package.json', 'bun.lock']),
+      inputs(['package.json'], { packageJson: pinned('bun@1.1.30') }),
     ];
-    for (const command of strict) expect(relaxedInstall(command)).not.toBeNull();
+
+    const produced = new Set<string>();
+    for (const one of every) {
+      const resolved = resolvePackageManager(one);
+      expect(resolved, 'a package.json always resolves to something').not.toBeNull();
+      for (const command of resolved?.commands ?? []) {
+        if (command[0] === 'corepack') continue;
+        produced.add(command.join(' '));
+      }
+    }
+
+    // The subject, before anything is asserted about it: an `every` list that
+    // stopped resolving would make every check below vacuous.
+    expect(produced.size).toBe(Object.keys(RELAXATION).length);
+    expect([...produced].sort()).toEqual(Object.keys(RELAXATION).sort());
+
+    for (const command of produced) {
+      expect(relaxedInstall(command.split(' ')), command).toEqual(RELAXATION[command] ?? null);
+    }
   });
 });

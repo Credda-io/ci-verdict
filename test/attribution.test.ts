@@ -11,6 +11,7 @@
  * repository.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   CI_NOT_A_DEFECT_REASONS,
@@ -21,6 +22,7 @@ import {
   findFailedJob,
   findFailedStep,
   logTail,
+  MAX_EVIDENCE_LENGTH,
   MAX_LOG_SCAN_BYTES,
 } from '../src/attribution.js';
 import type { JobFacts, WorkflowRunFacts } from '../src/attribution.js';
@@ -398,4 +400,291 @@ describe('logTail', () => {
     expect(tail.length).toBe(MAX_LOG_SCAN_BYTES);
     expect(new TextEncoder().encode(tail).length).toBe(MAX_LOG_SCAN_BYTES * 2);
   });
+});
+
+describe('every rejection says which layer decided it and what it saw', () => {
+  const failed = (over: Partial<WorkflowRunFacts> = {}): WorkflowRunFacts => ({
+    action: 'completed',
+    status: 'completed',
+    conclusion: 'failure',
+    triggeringEvent: 'push',
+    headBranch: 'main',
+    defaultBranch: 'main',
+    repositoryFullName: 'owner/repo',
+    workflowPath: '.github/workflows/ci.yml',
+    ...over,
+  });
+
+  it('labels GitHub-enum rejections documented and heuristic ones heuristic', () => {
+    const cancelled = classifyWorkflowRun(failed({ conclusion: 'cancelled' }));
+    expect(cancelled).toMatchObject({ layer: 'documented', evidence: 'cancelled' });
+
+    const step = classifyFailingStep({ name: 'Restore cache', number: 2, status: 'completed', conclusion: 'failure' });
+    expect(step).toMatchObject({ layer: 'heuristic', evidence: 'Restore cache' });
+  });
+
+  it('shows the branch, the event and the job that decided it', () => {
+    expect(classifyWorkflowRun(failed({ headBranch: 'renovate/lodash' }))).toMatchObject({
+      reason: 'NOT_THE_DEFAULT_BRANCH',
+      evidence: 'renovate/lodash',
+    });
+    expect(classifyWorkflowRun(failed({ triggeringEvent: 'pull_request' }))).toMatchObject({
+      reason: 'TRIGGER_IS_NOT_A_MAINLINE_RUN',
+      evidence: 'pull_request',
+    });
+    const jobs: JobFacts[] = [
+      { name: 'lint', conclusion: 'success', steps: [] },
+      { name: 'unit (node 22)', conclusion: 'cancelled', steps: [] },
+    ];
+    expect(classifyJobOutcome(jobs)).toMatchObject({ reason: 'JOB_CANCELLED', evidence: 'unit (node 22)' });
+  });
+
+  it('carries the whole log line a pattern matched, not the bare match', () => {
+    const rejection = classifyFailureLog(
+      ['npm install', '  npm ERR! network request to https://registry.npmjs.org/left-pad failed', 'done'].join('\n'),
+    );
+    expect(rejection?.evidence).toBe('npm ERR! network request to https://registry.npmjs.org/left-pad failed');
+  });
+
+  it('is null when the reason is the absence of a field, not the value of one', () => {
+    expect(classifyWorkflowRun(failed({ defaultBranch: null }))).toMatchObject({
+      reason: 'DEFAULT_BRANCH_NOT_STATED',
+      evidence: null,
+    });
+    expect(classifyWorkflowRun(failed({ workflowPath: null }))).toMatchObject({
+      reason: 'RUN_PAYLOAD_INCOMPLETE',
+      evidence: null,
+    });
+  });
+
+  it('strips the control characters a crafted step name could carry', () => {
+    // A step name is written by whoever opened the pull request. An ESC in it
+    // would be a terminal escape sequence in an operator's log; a CR would let
+    // it overwrite the line above.
+    const rejection = classifyFailingStep({
+      name: 'Checkout\u001b[2K\rdeploy succeeded',
+      number: 1,
+      status: 'completed',
+      conclusion: 'failure',
+    });
+    expect(rejection?.evidence).toBe('Checkout [2K deploy succeeded');
+    expect(rejection?.evidence).not.toMatch(/[\u0000-\u001F]/);
+  });
+
+  it('bounds what a caller ends up storing, however long the line was', () => {
+    const rejection = classifyFailureLog(`ECONNRESET ${'x'.repeat(5_000)}`);
+    expect(rejection?.evidence?.length).toBe(MAX_EVIDENCE_LENGTH);
+    expect(rejection?.evidence?.endsWith('\u2026')).toBe(true);
+  });
+});
+
+/**
+ * Every infrastructure pattern is the one that decided at least one line.
+ *
+ * WHY THIS EXISTS. `INFRASTRUCTURE_LOG_PATTERNS` is the list that decides
+ * whether a red run is the repository's fault, and the tests above reached
+ * fourteen of its twenty-two entries. The other eight -- a deprovisioned
+ * runner, a TLS handshake timeout, `503 Service Unavailable`, an exhausted
+ * API rate limit -- could be deleted one by one and every suite, the worked
+ * example and both CI jobs would stay green, while the package began
+ * answering `attributable: true` about a registry outage. A confident wrong
+ * accusation is the expensive failure this classifier exists to avoid, so
+ * the list is held to a sample rather than to a suite's exit code.
+ *
+ * THE PATTERNS ARE READ FROM THE SOURCE, not imported, because exporting a
+ * private constant to be tested changes the package's surface to suit its
+ * tests. Reading the module as text is what `test/package.test.ts` already
+ * does, and it has the property that matters here: a pattern ADDED without a
+ * sample fails, because the table below is keyed by the pattern's own source.
+ *
+ * "DECIDED" IS THE POINT, and it is stronger than "matched".
+ * `classifyFailureLog` returns on the FIRST hit, so a sample that matches two
+ * patterns only ever proves the earlier one -- which is how
+ * `/fatal: unable to access/i` came to be reached by a line that
+ * `/Could not resolve host/i` had already claimed. Each sample below is
+ * therefore asserted to be matched by its own pattern and by no earlier one.
+ */
+describe('every infrastructure log pattern earns its place', () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const block = /const INFRASTRUCTURE_LOG_PATTERNS: readonly RegExp\[\] = \[([\s\S]*?)\n\];/.exec(
+    source,
+  );
+
+  const literals = (block?.[1] ?? '')
+    .split('\n')
+    .map((line) => /^\s*(\/.*\/[a-z]*),\s*$/.exec(line.trim())?.[1])
+    .filter((literal): literal is string => literal !== undefined);
+
+  /* One line per pattern, keyed by the pattern's own source text. A pattern
+   * added to the module and not to this table has no key here and fails. */
+  const SAMPLES: Readonly<Record<string, string>> = {
+    '/The runner has received a shutdown signal/i':
+      'The runner has received a shutdown signal. Stopping.',
+    '/lost communication with the server/i':
+      'The self-hosted runner lost communication with the server.',
+    '/The operation was canceled/i': 'Error: The operation was canceled.',
+    '/No space left on device/i': "tar: write error: No space left on device",
+    '/Received request to deprovision/i': 'Received request to deprovision: The request was cancelled by the remote provider.',
+    '/getaddrinfo (ENOTFOUND|EAI_AGAIN)/i': 'npm error getaddrinfo ENOTFOUND registry.npmjs.example',
+    '/Temporary failure in name resolution/i':
+      'curl: (6) Could not resolve proxy: Temporary failure in name resolution',
+    '/Could not resolve host/i': 'fatal: Could not resolve host: github.example',
+    '/\\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH)\\b/':
+      'Error: connect ECONNREFUSED 10.0.0.1:443',
+    '/TLS handshake timeout/i': 'net/http: TLS handshake timeout',
+    '/SSL_ERROR_SYSCALL/': 'OpenSSL SSL_read: SSL_ERROR_SYSCALL, errno 104',
+    '/\\b(429 Too Many Requests|502 Bad Gateway|503 Service Unavailable|504 Gateway Time-?out)\\b/i':
+      'Received 503 Service Unavailable from the package mirror',
+    '/npm ERR! network/i': 'npm ERR! network request to https://registry.example failed',
+    '/ERR_PNPM_FETCH_/': ' ERR_PNPM_FETCH_500  GET https://registry.example: Internal Server Error',
+    '/error: RPC failed/i': 'error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly',
+    '/fatal: unable to access/i':
+      "fatal: unable to access 'https://github.example/o/r.git/': Empty reply from server",
+    '/The requested URL returned error: 5\\d\\d/':
+      'The requested URL returned error: 502',
+    '/failed to (fetch|download) (metadata|oauth token|the )/i':
+      'failed to fetch oauth token: unexpected status from GET request',
+    '/API rate limit exceeded/i': 'API rate limit exceeded for installation ID 1.',
+    '/\\bBad credentials\\b/': 'gh: Bad credentials (HTTP 401)',
+    '/remote: Repository not found/i': 'remote: Repository not found.',
+    '/(authentication|authorization) (required|failed)/i':
+      'denied: authorization failed for the container registry',
+    '/toomanyrequests: (You have reached|Rate exceeded)/i':
+      'toomanyrequests: You have reached your pull rate limit.',
+  };
+
+  it('finds the list it is auditing, so an empty pass cannot be a false one', () => {
+    expect(block).not.toBeNull();
+    expect(literals.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('has one sample line for each pattern, and no sample for a pattern that is gone', () => {
+    expect(literals.slice().sort()).toEqual(Object.keys(SAMPLES).sort());
+  });
+
+  it.each(literals.map((literal, index) => [literal, index] as const))(
+    'pattern %s is the one that decides its sample',
+    (literal, index) => {
+      const sample = SAMPLES[literal];
+      expect(sample, `no sample line for ${literal}`).toBeDefined();
+
+      const body = /^\/([\s\S]*)\/([a-z]*)$/.exec(literal);
+      expect(body).not.toBeNull();
+      const own = new RegExp(body?.[1] ?? '', body?.[2] ?? '');
+      expect(own.test(sample as string)).toBe(true);
+
+      /* No earlier pattern may claim it, or this one was never the reason. */
+      for (const earlier of literals.slice(0, index)) {
+        const parts = /^\/([\s\S]*)\/([a-z]*)$/.exec(earlier);
+        const before = new RegExp(parts?.[1] ?? '', parts?.[2] ?? '');
+        expect(
+          before.test(sample as string),
+          `${earlier} matches the sample for ${literal} and decides it first`,
+        ).toBe(false);
+      }
+
+      const rejection = classifyFailureLog(sample as string);
+      expect(rejection?.attributable).toBe(false);
+      expect(rejection?.reason).toBe('INFRASTRUCTURE_IN_LOG');
+    },
+  );
+});
+
+/**
+ * The same audit for the step-name list, which had none.
+ *
+ * WHY THIS EXISTS. `INFRASTRUCTURE_LOG_PATTERNS` has the audit above;
+ * `INFRASTRUCTURE_STEP_PATTERNS` had nothing of the kind, and the difference
+ * was not visible from either list. Measured 2026-08-30: deleting
+ * `/^installing\b/i` from the module left all 183 tests passing, because no
+ * test anywhere named a step called "Installing dependencies". The other
+ * fifteen patterns were each reached by some step name asserted above, but
+ * incidentally -- nothing said they had to be.
+ *
+ * The two ordering traps from the log audit apply here too, and harder, since
+ * every pattern is anchored at `^` and several overlap: `Restore cache` is
+ * claimed by `/^restore (the )?(dependencies|packages|cache)\b/i` before the
+ * cache pattern ever sees it, and `Checkout` by the `actions/checkout` pattern
+ * before `/^check ?out\b/i`. So each sample is asserted to be matched by its
+ * own pattern and by NO EARLIER ONE, which is what makes it evidence that the
+ * pattern is the one deciding rather than a line some other pattern had
+ * already claimed.
+ */
+describe('every infrastructure step pattern earns its place', () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const block = /const INFRASTRUCTURE_STEP_PATTERNS: readonly RegExp\[\] = \[([\s\S]*?)\n\];/.exec(
+    source,
+  );
+
+  const literals = (block?.[1] ?? '')
+    .split('\n')
+    .map((line) => /^\s*(\/.*\/[a-z]*),\s*$/.exec(line.trim())?.[1])
+    .filter((literal): literal is string => literal !== undefined);
+
+  /* One step name per pattern, keyed by the pattern's own source text. A
+   * pattern added to the module and not to this table has no key here and
+   * fails the equality below. */
+  const SAMPLES: Readonly<Record<string, string>> = {
+    '/^set up job\\b/i': 'Set up job',
+    '/^complete job\\b/i': 'Complete job',
+    '/^post\\b/i': 'Post Run actions/checkout@v4',
+    '/^(actions\\/)?checkout\\b/i': 'actions/checkout@v4',
+    '/^check ?out\\b/i': 'Check out the repository',
+    '/^set ?up[ -](node|python|java|go|ruby|dotnet|\\.net|rust|php|xcode|jdk|msbuild|qemu|buildx|docker)\\b/i':
+      'Setup-Python 3.13',
+    '/^install (the )?(dependencies|deps|packages|toolchain|requirements)\\b/i':
+      'Install the requirements',
+    '/^installing\\b/i': 'Installing Rust toolchain',
+    '/^(npm|pnpm|yarn|bun|pip|pipenv|poetry|bundle|cargo|composer|go mod|gradle|mvn|maven) (ci|install|fetch|download|restore|sync)\\b/i':
+      'cargo fetch --locked',
+    '/^restore (the )?(dependencies|packages|cache)\\b/i': 'Restore the packages',
+    '/^(restore|save|warm|prime)?[ -]?cache\\b/i': 'Cache node modules',
+    '/^(upload|download)[ -]artifact\\b/i': 'Upload-artifact',
+    '/^(upload|download) (the )?artifacts?\\b/i': 'Download the artifacts',
+    '/^(log ?in|login|authenticate)\\b/i': 'Log in to GHCR',
+    '/^configure (aws|gcp|azure|google) credentials\\b/i': 'Configure AWS credentials',
+    '/^(docker )?(build and push|push image)\\b/i': 'Docker build and push',
+  };
+
+  it('finds the list it is auditing, so an empty pass cannot be a false one', () => {
+    expect(block).not.toBeNull();
+    expect(literals.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it('has one sample name for each pattern, and no sample for a pattern that is gone', () => {
+    expect(literals.slice().sort()).toEqual(Object.keys(SAMPLES).sort());
+  });
+
+  it.each(literals.map((literal, index) => [literal, index] as const))(
+    'pattern %s is the one that decides its sample',
+    (literal, index) => {
+      const sample = SAMPLES[literal];
+      expect(sample, `no sample step name for ${literal}`).toBeDefined();
+
+      const body = /^\/([\s\S]*)\/([a-z]*)$/.exec(literal);
+      expect(body).not.toBeNull();
+      const own = new RegExp(body?.[1] ?? '', body?.[2] ?? '');
+      expect(own.test(sample as string)).toBe(true);
+
+      /* No earlier pattern may claim it, or this one was never the reason. */
+      for (const earlier of literals.slice(0, index)) {
+        const parts = /^\/([\s\S]*)\/([a-z]*)$/.exec(earlier);
+        const before = new RegExp(parts?.[1] ?? '', parts?.[2] ?? '');
+        expect(
+          before.test(sample as string),
+          `${earlier} matches the sample for ${literal} and decides it first`,
+        ).toBe(false);
+      }
+
+      const rejection = classifyFailingStep({
+        name: sample as string,
+        number: 3,
+        status: 'completed',
+        conclusion: 'failure',
+      });
+      expect(rejection?.attributable).toBe(false);
+      expect(rejection?.reason).toBe('FAILING_STEP_IS_INFRASTRUCTURE');
+      expect(rejection?.layer).toBe('heuristic');
+    },
+  );
 });

@@ -1,0 +1,142 @@
+/**
+ * The README's worked output, checked against the library rather than trusted.
+ *
+ * The README quotes what `npm run example` prints and then says the block
+ * cannot drift. Until now nothing compared the two: the four cases were
+ * asserted in the suite and in the example, so a changed explanation would fail
+ * both of those -- and whoever fixed them could still leave the README quoting
+ * the old sentence, which is the copy with the most readers and the one nobody
+ * runs. So the block is rendered here from `examples/cases.mjs`, exactly as the
+ * example renders it, and the README must contain it verbatim.
+ *
+ * This also checks the cases themselves against `src/`, which is why it needs
+ * no build: the example asserts the same expectations against `dist/`.
+ */
+
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+// @ts-expect-error -- plain JavaScript data, deliberately untyped and shared
+// with `examples/three-runs.mjs`, which cannot import a TypeScript module.
+import { cases } from '../examples/cases.mjs';
+import { ciVerdict } from '../src/verdict.js';
+import { CI_NOT_A_DEFECT_REASONS } from '../src/attribution.js';
+import type { CiAttribution, CiVerdictInput } from '../src/index.js';
+
+interface WorkedCase {
+  readonly title: string;
+  readonly input: CiVerdictInput;
+  readonly expected: CiAttribution;
+}
+
+const worked = cases as readonly WorkedCase[];
+const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+
+/** What `examples/three-runs.mjs` prints for one case, character for character. */
+function rendered(title: string, verdict: CiAttribution): string {
+  return `\n${title}\n  ${JSON.stringify(verdict, null, 2).split('\n').join('\n  ')}\n`;
+}
+
+describe("the README's worked output", () => {
+  it('quotes four cases, which is what the example runs', () => {
+    // An empty `cases` would make every assertion below pass by having nothing
+    // to check, so the count is asserted before anything is compared to it.
+    expect(worked.length).toBe(4);
+  });
+
+  it('is what the library actually produces, case by case', () => {
+    for (const { title, input, expected } of worked) {
+      expect(ciVerdict(input), title).toEqual(expected);
+    }
+  });
+
+  it('appears in README.md verbatim, block and all', () => {
+    const block = worked.map(({ title, expected }) => rendered(title, expected)).join('');
+    expect(readme).toContain(block.trim());
+  });
+
+  it('is inside the fenced block the README introduces as the example output', () => {
+    const marker = '`npm run example` builds the package and runs';
+    const start = readme.indexOf(marker);
+    expect(start, 'the README no longer introduces the example output').not.toBe(-1);
+    const open = readme.indexOf('\n```\n', start);
+    const close = readme.indexOf('\n```', open + 5);
+    expect(open, 'no fenced block follows').not.toBe(-1);
+    expect(close).toBeGreaterThan(open);
+    const quoted = readme.slice(open + 5, close);
+    const printed = worked.map(({ title, expected }) => rendered(title, expected)).join('');
+    expect(quoted.trim()).toBe(printed.trim());
+  });
+});
+
+/**
+ * The README claims an audit exists for BOTH heuristic pattern lists. That
+ * sentence is the kind that stays true in prose long after it stops being true
+ * in the suite -- the step-name half of it was false from the day the list was
+ * written until 2026-08-30. So the claim is tied to the two audits by name: a
+ * pattern list in `src/attribution.ts` with no `earns its place` block in the
+ * suite fails here, and so does deleting an audit while leaving the sentence.
+ */
+describe("the README's claim about the pattern audits", () => {
+  const source = readFileSync(new URL('../src/attribution.ts', import.meta.url), 'utf8');
+  const suite = readFileSync(new URL('./attribution.test.ts', import.meta.url), 'utf8');
+
+  it('names both lists, and both lists are audited', () => {
+    expect(readme).toContain('one per entry in BOTH heuristic pattern lists');
+
+    const lists = [...source.matchAll(/const (INFRASTRUCTURE_\w+_PATTERNS): readonly RegExp\[\]/g)].map(
+      (match) => match[1],
+    );
+    expect(lists.sort()).toEqual(['INFRASTRUCTURE_LOG_PATTERNS', 'INFRASTRUCTURE_STEP_PATTERNS']);
+
+    for (const list of lists) {
+      expect(suite, `${list} has no per-entry audit`).toContain(`const block = /const ${list}`);
+    }
+  });
+});
+
+/**
+ * The reason-code tables, against the code that emits them.
+ *
+ * `CI_NOT_A_DEFECT_REASONS` is exported for callers to count against, and the
+ * README publishes it as three tables plus one arithmetic sentence -- "14 of
+ * the 16 reason codes are layer 1". Nothing compared any of that to the array.
+ * A code added to the union and not to a table is a code a reader cannot look
+ * up; a row left behind for a code that is gone documents something the
+ * library can no longer emit; and the sentence is the kind that is written
+ * once and never re-counted. All three are mechanical, so they are checked
+ * here rather than trusted.
+ */
+describe("the README's reason codes", () => {
+  /** The code column of the table under one `###` heading, that heading only. */
+  const table = (heading: string): readonly string[] => {
+    const start = readme.indexOf(`### ${heading}`);
+    expect(start, `the README has no "### ${heading}" section`).not.toBe(-1);
+    const next = /\n##+ /.exec(readme.slice(start + 1));
+    const section = readme.slice(start, next === null ? undefined : start + 1 + next.index);
+    return [...section.matchAll(/^\| `([A-Z_]+)` \|/gm)].map((match) => match[1] as string);
+  };
+
+  const documented = [
+    ...table("Layer 1 — run level (GitHub's documented enums)"),
+    ...table("Layer 1 — job level (GitHub's documented enums)"),
+    ...table('Layer 2 — heuristic (may only reject)'),
+  ];
+
+  it('are the codes the library can emit, in both directions', () => {
+    // An empty extraction would make the comparison below pass against an
+    // empty union and fail against a real one; asserted first either way.
+    expect(documented.length).toBeGreaterThan(0);
+    expect([...documented].sort()).toEqual([...CI_NOT_A_DEFECT_REASONS].sort());
+  });
+
+  it('are counted correctly in the prose that adds them up', () => {
+    const heuristic = table('Layer 2 — heuristic (may only reject)');
+    expect(heuristic.length).toBeGreaterThan(0);
+    const layerOne = CI_NOT_A_DEFECT_REASONS.length - heuristic.length;
+    // The sentence wraps in the source, so the README is compared with its
+    // line breaks flattened rather than with the claim written twice.
+    expect(readme.replace(/\s+/g, ' ')).toContain(
+      `${layerOne} of the ${CI_NOT_A_DEFECT_REASONS.length} reason codes are layer 1`,
+    );
+  });
+});

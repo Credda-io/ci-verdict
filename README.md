@@ -23,7 +23,11 @@ which layer of evidence decided, and is careful about the difference between
   fails if that stops being true.
 - **Pure and total.** No I/O, no network, no clock, no throw. You hand it JSON
   you already have; it hands you a verdict.
-- **148 tests**, 94 of them on the classifier itself.
+- **204 tests**, 143 of them on the classifier itself -- including one per entry in BOTH heuristic pattern lists, the log lines and the step names, each asserted to be the pattern that DECIDED its own sample rather than merely to match it. The step list had no such audit until 2026-08-30, and one of its patterns could be deleted with the whole suite still green.
+- **Never measured against real runs.** The tests say it reads GitHub's enums
+  correctly; nobody has scored its two heuristics, or its default, against a
+  labelled set of real red runs, because none exists. [What that would
+  take](#has-any-of-this-been-measured-no--and-here-is-what-it-would-take).
 
 Apache-2.0. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities:
 [SECURITY.md](SECURITY.md), privately.
@@ -42,10 +46,21 @@ can be enforced by the type system instead of by a comment.
 ### What it has to do with Credda
 
 This is the failing-CI classifier from [Credda](https://credda.io), extracted
-and published on its own. Credda finds the bugs and security vulnerabilities in a
-company's production and QA environments, reproduces the failure, diagnoses the
-cause, writes the patch, proves it with a test that fails before and passes
-after, and opens a pull request. It runs in your own CI. It proposes and never
+and published on its own. Credda takes a bug report or security vulnerability a
+customer has labelled, reproduces the failure, diagnoses the cause, writes the
+patch, proves it with a test that fails before and passes after, and hands back
+a diff. It runs in your own CI. Whether that diff becomes a
+pull request depends on which mechanism delivered it, and the two answer
+differently: the **GitHub App** path opens one with no flag and no switch, for a
+run that reaches `READY_FOR_REVIEW` with a proven verdict; the **GitHub Action**
+opens none unless you set its `open-pull-request` input, which defaults to
+`false`, **and** add `contents: write` and `pull-requests: write` to your own
+workflow's `permissions:` block, which a default install does not grant. Turning
+the input on without both scopes fails at that step rather than opening
+anything -- and that input is declared on no version a caller can reach: it is
+absent from `action.yml` at the `v1` tag and on the action's default branch
+alike, so setting it today parses, runs green and delivers nothing. How often a
+run reaches a proven fix at all has not been measured. It proposes and never
 merges.
 
 Everything in that sentence rests on a red run meaning something. An agent that
@@ -60,7 +75,7 @@ can be, and made cautiously where it cannot.
 npm install ci-verdict
 ```
 
-> **Not on npm yet — checked 2026-08-28.** `https://registry.npmjs.org/ci-verdict`
+> **Not on npm yet — checked 2026-08-30.** `https://registry.npmjs.org/ci-verdict`
 > returns 404, so the command above fails today. Until `0.1.0` is published, use
 > it from a checkout of this repository. This is the only claim in this README
 > that is about the future; everything below is about the code in this repo, and
@@ -93,8 +108,23 @@ attributable verdict does not compile:
 ```ts
 type CiAttribution =
   | { attributable: true }
-  | { attributable: false; reason: CiNotADefectReason; explanation: string };
+  | {
+      attributable: false;
+      reason: CiNotADefectReason;
+      explanation: string;
+      layer: 'documented' | 'heuristic';
+      evidence: string | null;
+    };
 ```
+
+`layer` says which of the two layers below decided, so a caller who wants to
+act only on the certain half can write `verdict.layer === 'documented'` instead
+of hardcoding a list of reason codes that goes stale the next time one is
+added. `evidence` is the one thing that decided it — the conclusion, the
+triggering event, the branch, the failing job or step name, the log line a
+pattern matched — and null when the reason is the *absence* of a field, since
+then there is nothing to show. See "Evidence is payload text" before you log
+it.
 
 `npm run example` builds the package and runs [four real-shaped
 runs](examples/three-runs.mjs) through it. Its actual output:
@@ -109,26 +139,36 @@ A cancelled run — somebody pressed the button
   {
     "attributable": false,
     "reason": "RUN_CANCELLED",
-    "explanation": "the run was cancelled, which says a person or a policy stopped it and nothing about the code"
+    "explanation": "the run was cancelled, which says a person or a policy stopped it and nothing about the code",
+    "layer": "documented",
+    "evidence": "cancelled"
   }
 
 An infrastructure failure — the npm registry answered 503 during install
   {
     "attributable": false,
     "reason": "FAILING_STEP_IS_INFRASTRUCTURE",
-    "explanation": "the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository"
+    "explanation": "the step that failed sets up the job rather than exercising the code -- a checkout, a toolchain install, a cache or an artifact transfer -- so the break is in the pipeline rather than in the repository",
+    "layer": "heuristic",
+    "evidence": "Install dependencies"
   }
 
 An infrastructure failure — a self-hosted runner died mid-suite, log only
   {
     "attributable": false,
     "reason": "INFRASTRUCTURE_IN_LOG",
-    "explanation": "the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested"
+    "explanation": "the log of the failing step names a network, registry, runner or credential failure, which is a failure of the infrastructure the tests ran on rather than of the code they tested",
+    "layer": "heuristic",
+    "evidence": "2026-08-24T10:52:18.7000000Z The self-hosted runner: builder-07 lost communication with the server."
   }
 ```
 
-The same four cases are asserted in [`test/verdict.test.ts`](test/verdict.test.ts),
-so this README cannot drift away from what the code does.
+That block is not transcribed. [`test/readme.test.ts`](test/readme.test.ts)
+renders it from the same four cases the example runs
+([`examples/cases.mjs`](examples/cases.mjs)) and fails if this file does not
+contain it verbatim, so a changed explanation cannot be fixed in the code and
+left wrong here. The same four cases are also asserted against the library in
+[`test/verdict.test.ts`](test/verdict.test.ts).
 
 ## The two layers, and why one of them may only ever say no
 
@@ -188,6 +228,28 @@ introduced or may be a runner smaller than the job needs, and this library
 cannot tell which. Rejecting it would hide a real class of defect, so it falls
 through. There is a test that pins that behaviour.
 
+### Evidence is payload text
+
+`explanation` is this library's own sentence and quotes nothing. `evidence` is
+the opposite: it is the branch name, the step name or the log line, and every
+one of those was written by whoever opened the pull request or by whatever the
+job printed. It is handed back because a rejection you cannot explain to the
+person who filed it is a rejection you cannot argue with — the reason code says
+`FAILING_STEP_IS_INFRASTRUCTURE`, and the only thing that settles whether that
+was right is knowing the step was called `Install dependencies`.
+
+What is done to it before you get it: every control character becomes a space,
+so an ESC cannot start a terminal escape sequence in your log and a CR cannot
+overwrite the line above it; runs of whitespace collapse; the result is cut to
+`MAX_EVIDENCE_LENGTH` (200) characters, so one minified line in a log cannot
+become a megabyte in your database.
+
+What is not done to it: it is not escaped for HTML, for a shell, or for SQL,
+and it is not validated to be anything. **Display it; do not parse it, and
+escape it wherever you put it.** If you would rather not hold attacker-written
+text at all, ignore the field — everything else in the verdict is this
+library's own vocabulary.
+
 ## The known limitation, stated plainly
 
 **The default for an unrecognised failure is `attributable`.**
@@ -211,6 +273,76 @@ failing test. A command that reproduces. An infrastructure failure that slips
 past both layers arrives with none of those, so a downstream requirement for one
 catches it without anybody writing another regex. That gate is your policy and
 is deliberately not in this library.
+
+## Has any of this been measured? No — and here is what it would take.
+
+Nothing in this repository has ever spoken to GitHub. Every payload in
+`test/` and in `examples/` was hand-written from the field lists GitHub
+publishes, cited by URL in `src/attribution.ts`. So there is no labelled set of
+real red runs here, and none anywhere else in the codebase this library was cut
+out of. **No number in this README is an accuracy number, because none has been
+earned.** That is a statement of fact, not modesty, and it should stay here
+until somebody changes it by measuring.
+
+**Most of the surface could not be measured anyway, and that is fine.** 14 of
+the 16 reason codes are layer 1: they read back an enum GitHub documents.
+`RUN_CANCELLED` fires when `conclusion` is `cancelled`. There is no ground truth
+to compare that against that is not the same field read a second time —
+labelling it would be circular. What layer 1 can be wrong about is *reading*,
+and reading is what `test/attribution.test.ts` checks.
+
+Three claims are genuinely falsifiable, and each needs different evidence:
+
+1. **Layer-2 precision.** When `FAILING_STEP_IS_INFRASTRUCTURE` or
+   `INFRASTRUCTURE_IN_LOG` rejects a run, was the failure really the pipeline?
+   A false rejection here silently drops a defect.
+2. **The residue.** [The known limitation](#the-known-limitation-stated-plainly)
+   says an unrecognised infrastructure failure comes back `attributable`. Nobody
+   knows how often. This is the number that matters most, because it is the one
+   the default is spending.
+3. **Whether the layer-1 policy exclusions cost anything.**
+   `TRIGGER_IS_NOT_A_MAINLINE_RUN` and `NOT_THE_DEFAULT_BRANCH` are choices, not
+   errors — they discard real defects on purpose. Measuring them means asking
+   whether the discarded ones were worth reporting, which is a product question
+   with no ground truth at all.
+
+**What an honest labelled set would require.**
+
+- **A sample drawn before anything is classified.** A fixed list of public
+  repositories and a fixed date window, written down first, so the sample is not
+  selected by what this library says about it.
+- **Deliveries plus jobs plus the failing job's log, per run.** The verdict
+  changes with the evidence given (see [How much evidence to give
+  it](#how-much-evidence-to-give-it)), so a corpus that is webhooks only can
+  only measure layers 1 and 2a.
+- **Forward capture, not a backfill.** Actions logs are retained for a limited
+  window and the log download URL GitHub hands back expires in about a minute.
+  A corpus of failing-job logs has to be collected as the runs happen. This is
+  the expensive constraint: it is weeks of wall-clock before anything can be
+  scored, not an afternoon of fetching.
+- **A label that is not this library's opinion, and not a model's.** The only
+  labels going that are neither a judgement nor a restatement of the input:
+  a re-run of the *same commit with no code change* that succeeds is evidence of
+  a non-repository failure; a failure that persists across subsequent commits
+  until a code change clears it is evidence of a repository one. Both are
+  execution, which is the right shape. Both are also imperfect, and the honest
+  reading is narrow: a re-run that goes green can equally be a flaky *test*,
+  which is the repository's own defect and should be attributable. Any corpus
+  built this way has to report that ambiguity rather than round it away.
+
+**Two ways of faking it, named so nobody reaches for them.** Labelling runs by
+asking a model to read the log measures the model. Labelling them by having a
+person read the log for words like "ECONNRESET" measures this library's keyword
+list against itself and will score near perfect while proving nothing. A
+measurement is only worth having when it can come back unflattering — which is
+exactly what happened to `repro-check`, the sibling library, the first time it
+was scored.
+
+**What a deployment can do today.** Count the reason codes, as [Reason
+codes](#reason-codes) describes. That distribution is a smoke test on your
+pipeline — nine hundred `INFRASTRUCTURE_IN_LOG` in a thousand means your CI is
+broken — and it is not a measurement of this library, because nothing in it
+knows whether any single verdict was right. Do not report it as one.
 
 ## Reason codes
 
@@ -384,9 +516,10 @@ somebody else's build.
 ```
 npm install
 npm run typecheck   # tsc, strict, noUncheckedIndexedAccess
-npm test            # vitest, 148 tests
+npm test            # vitest; the count is in the summary above, not here twice
 npm run build       # tsc → dist/, ESM + .d.ts
-npm run check       # all three
+npm run check:readme # the two test counts above, against the tests collected
+npm run check       # all four
 npm run example     # build, then run the four worked runs
 ```
 
