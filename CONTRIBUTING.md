@@ -7,7 +7,7 @@ shape, so it is worth knowing the shape before you spend an afternoon on it.
 
 ```
 npm install
-npm run check    # typecheck, then 146 tests, then build
+npm run check    # typecheck, then the tests, then build, then check:readme
 ```
 
 `npm run example` builds and runs four real-shaped runs through the classifier
@@ -51,7 +51,14 @@ easiest to get subtly wrong. Before adding one, ask:
 - **Is it anchored and literal?** These run against attacker-influenced log
   text. No quantifier applied to a group that can also match empty.
 - **Have you added a test that fails without it?** `test/attribution.test.ts` is
-  where the classifier's 94 tests live.
+  where the classifier's tests live -- the largest file in the suite by a wide
+  margin.
+
+  Counts are deliberately not repeated here. `scripts/check-readme-counts.mjs`
+  pins them in README.md against the tests actually collected, and it does not
+  read this file, so a number typed here drifts silently. This paragraph said
+  "94 tests" and the line above said "146 tests" until 2026-09-20; both were
+  true when written and the real figures were 143 and 204 by then.
 
 Out-of-memory is deliberately absent, and the test that pins that is deliberate
 too: a suite that exhausts the runner's memory may be a leak you introduced or a
