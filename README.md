@@ -57,9 +57,12 @@ opens none unless you set its `open-pull-request` input, which defaults to
 `false`, **and** add `contents: write` and `pull-requests: write` to your own
 workflow's `permissions:` block, which a default install does not grant. Turning
 the input on without both scopes fails at that step rather than opening
-anything -- and that input is declared on no version a caller can reach: it is
-absent from `action.yml` at the `v1` tag and on the action's default branch
-alike, so setting it today parses, runs green and delivers nothing. How often a
+anything. This sentence continued, until 2026-09-20, "and that input is
+declared on no version a caller can reach: it is absent from `action.yml` at
+the `v1` tag and on the action's default branch alike". That was true when
+written; the tag moved on 2026-09-04 and `git show v1:action.yml` now declares
+`open-pull-request` with `default: 'false'`, so it is reachable at `@v1` and on
+the default branch alike. How often a
 run reaches a proven fix at all has not been measured. It proposes and never
 merges.
 
